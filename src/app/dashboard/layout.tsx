@@ -1,12 +1,15 @@
 "use client";
-
+import { useRouter } from "next/navigation";
+import { supabase } from "../../lib/supabase";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bell,
   BookOpen,
+  CheckCircle,
   CalendarDays,
+  ClipboardList,
   GraduationCap,
   LayoutDashboard,
   LogOut,
@@ -17,8 +20,13 @@ import {
 const menuItems = [
   {
     label: "Dashboard",
-    href: "/dashboard/professor",
+    href: "/dashboard",
     icon: LayoutDashboard,
+  },
+  {
+  label: "Entregas",
+  href: "/dashboard/entregas",
+  icon: CheckCircle,
   },
   {
     label: "Turmas",
@@ -41,6 +49,11 @@ const menuItems = [
     icon: CalendarDays,
   },
   {
+  label: "Notas",
+  href: "/dashboard/notas",
+  icon: ClipboardList,
+  },
+  {
     label: "Mensagens",
     href: "/dashboard/mensagens",
     icon: MessageSquare,
@@ -53,6 +66,13 @@ const menuItems = [
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
+ const router = useRouter();
+
+async function handleLogout() {
+  await supabase.auth.signOut();
+
+  router.push("/login");
+}
   const pathname = usePathname();
 
   return (
@@ -94,7 +114,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="mt-auto">
-          <button className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-slate-300 transition hover:bg-white/5">
+          <button
+          onClick={handleLogout} 
+          className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-slate-300 transition hover:bg-white/5">
             <LogOut size={20} />
             Sair
           </button>
