@@ -1,7 +1,6 @@
 import {
   Mail,
   Phone,
-  Plus,
   Search,
   TrendingUp,
   UserRound,
@@ -9,7 +8,7 @@ import {
 } from "lucide-react";
 
 import { supabase } from "../../../lib/supabase";
-import { NewStudentForm } from "../../../components/NewStudentForm";
+import { StudentRegistrationArea } from "../../../components/StudentRegistrationArea";
 import { DeleteStudentButton } from "../../../components/DeleteStudentButton";
 import Link from "next/link";
 
@@ -18,12 +17,19 @@ type Student = {
   name: string;
   email: string;
   class_name: string;
+  course_name: string;
+  phone: string;
   average: number;
   attendance: number;
   status: string;
 };
 
 type ClassItem = {
+  id: string;
+  name: string;
+};
+
+type CourseItem = {
   id: string;
   name: string;
 };
@@ -39,13 +45,20 @@ export default async function AlunosPage() {
     .select("id, name")
     .order("name", { ascending: true });
 
-  if (error || classesError) {
+  const { data: courses, error: coursesError } = await supabase
+    .from("courses")
+    .select("id, name")
+    .order("name", { ascending: true });
+
+  if (error || classesError || coursesError) {
     return (
       <div className="p-6 text-white">
         <h1 className="text-3xl font-bold">Erro ao carregar dados</h1>
 
         <p className="mt-2 text-red-300">
-          {error?.message || classesError?.message}
+          {error?.message ||
+            classesError?.message ||
+            coursesError?.message}
         </p>
       </div>
     );
@@ -61,25 +74,20 @@ export default async function AlunosPage() {
   return (
     <>
       <header className="border-b border-slate-800 bg-slate-950/40 px-6 py-5">
-        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Alunos</h1>
+  <div>
+    <h1 className="text-3xl font-bold">Alunos</h1>
 
-            <p className="mt-1 text-slate-400">
-              Cadastre alunos vinculados às turmas reais do sistema.
-            </p>
-          </div>
-
-          <button className="flex items-center gap-3 rounded-2xl bg-violet-500 px-5 py-3 font-semibold transition hover:bg-violet-400">
-            <Plus size={22} />
-            Novo aluno
-          </button>
-        </div>
-      </header>
+    <p className="mt-1 text-slate-400">
+      Cadastre alunos vinculados às turmas reais do sistema.
+    </p>
+  </div>
+</header>
 
       <section className="p-6">
-        <NewStudentForm classes={(classes as ClassItem[]) ?? []} />
-
+        <StudentRegistrationArea
+  classes={(classes as ClassItem[]) ?? []}
+  courses={(courses as CourseItem[]) ?? []}
+/>
         <div className="mt-8 grid gap-5 md:grid-cols-3">
           <SummaryCard
             title="Total de alunos"
@@ -120,6 +128,8 @@ export default async function AlunosPage() {
                 <tr>
                   <th className="p-4">Aluno</th>
                   <th className="p-4">Turma</th>
+                  <th className="p-4">Curso</th>
+                  <th className="p-4">Telefone</th>
                   <th className="p-4">Média</th>
                   <th className="p-4">Frequência</th>
                   <th className="p-4">Status</th>
@@ -140,12 +150,12 @@ export default async function AlunosPage() {
                         </div>
 
                         <div>
-                        <Link
-  href={`/dashboard/alunos/${student.id}`}
-  className="font-semibold transition hover:text-violet-300"
->
-  {student.name}
-</Link>  
+                          <Link
+                            href={`/dashboard/alunos/${student.id}`}
+                            className="font-semibold transition hover:text-violet-300"
+                          >
+                            {student.name}
+                          </Link>
 
                           <p className="text-sm text-slate-400">
                             {student.email}
@@ -158,7 +168,17 @@ export default async function AlunosPage() {
                       {student.class_name || "Sem turma"}
                     </td>
 
-                    <td className="p-4 font-semibold">{student.average}</td>
+                    <td className="p-4 text-slate-300">
+                      {student.course_name || "Sem curso"}
+                    </td>
+
+                    <td className="p-4 text-slate-300">
+                      {student.phone || "-"}
+                    </td>
+
+                    <td className="p-4 font-semibold">
+                      {student.average}
+                    </td>
 
                     <td className="p-4 font-semibold">
                       {student.attendance}%
@@ -219,8 +239,8 @@ function StatusBadge({ status }: { status: string }) {
     status === "Excelente"
       ? "bg-emerald-500/10 text-emerald-300"
       : status === "Atenção"
-        ? "bg-amber-500/10 text-amber-300"
-        : "bg-blue-500/10 text-blue-300";
+      ? "bg-amber-500/10 text-amber-300"
+      : "bg-blue-500/10 text-blue-300";
 
   return (
     <span className={`rounded-full px-3 py-1 text-sm font-medium ${styles}`}>

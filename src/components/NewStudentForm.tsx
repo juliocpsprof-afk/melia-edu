@@ -1,12 +1,7 @@
 "use client";
 
 import { useState } from "react";
-
-import {
-  CheckCircle,
-  XCircle,
-} from "lucide-react";
-
+import { CheckCircle, XCircle } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 type ClassItem = {
@@ -14,23 +9,30 @@ type ClassItem = {
   name: string;
 };
 
+type CourseItem = {
+  id: string;
+  name: string;
+};
+
 export function NewStudentForm({
   classes,
+  courses,
 }: {
   classes: ClassItem[];
+  courses: CourseItem[];
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+
   const [classId, setClassId] = useState("");
+  const [courseId, setCourseId] = useState("");
 
   const [average, setAverage] = useState("");
   const [attendance, setAttendance] = useState("");
 
-  const [status, setStatus] =
-    useState("Regular");
-
-  const [loading, setLoading] =
-    useState(false);
+  const [status, setStatus] = useState("Regular");
+  const [loading, setLoading] = useState(false);
 
   const [message, setMessage] = useState<{
     type: "success" | "error";
@@ -40,47 +42,42 @@ export function NewStudentForm({
   async function handleCreateStudent() {
     setMessage(null);
 
-    if (
-      !name ||
-      !email ||
-      !classId ||
-      !average ||
-      !attendance
-    ) {
+    if (!name || !email || !phone || !classId || !courseId) {
       setMessage({
         type: "error",
-        text: "Preencha todos os campos.",
+        text: "Preencha nome, e-mail, telefone, turma e curso.",
       });
 
       return;
     }
 
-    const selectedClass = classes.find(
-      (item) => item.id === classId
-    );
+    const selectedClass = classes.find((item) => item.id === classId);
+    const selectedCourse = courses.find((item) => item.id === courseId);
 
     setLoading(true);
 
-    const { error } = await supabase
-      .from("students")
-      .insert({
-        name,
-        email,
+    const { error } = await supabase.from("students").insert({
+      name,
+      email,
+      phone,
 
-        class_id: classId,
+      class_id: classId,
+      class_name: selectedClass?.name,
 
-        class_name: selectedClass?.name,
+      course_id: courseId,
+      course_name: selectedCourse?.name,
 
-        average: Number(average),
+      average: average ? Number(average) : 0,
+      attendance: attendance ? Number(attendance) : 0,
 
-        attendance: Number(attendance),
-
-        status,
-      });
+      status,
+    });
 
     setLoading(false);
 
     if (error) {
+      console.error(error);
+
       setMessage({
         type: "error",
         text: "Erro ao cadastrar aluno.",
@@ -96,10 +93,11 @@ export function NewStudentForm({
 
     setName("");
     setEmail("");
+    setPhone("");
     setClassId("");
+    setCourseId("");
     setAverage("");
     setAttendance("");
-
     setStatus("Regular");
 
     setTimeout(() => {
@@ -109,9 +107,7 @@ export function NewStudentForm({
 
   return (
     <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
-      <h2 className="text-2xl font-bold">
-        Cadastrar novo aluno
-      </h2>
+      <h2 className="text-2xl font-bold">Cadastrar novo aluno</h2>
 
       {message && (
         <div
@@ -127,9 +123,7 @@ export function NewStudentForm({
             <XCircle size={20} />
           )}
 
-          <span className="font-medium">
-            {message.text}
-          </span>
+          <span className="font-medium">{message.text}</span>
         </div>
       )}
 
@@ -137,38 +131,49 @@ export function NewStudentForm({
         <input
           placeholder="Nome do aluno"
           value={name}
-          onChange={(event) =>
-            setName(event.target.value)
-          }
+          onChange={(event) => setName(event.target.value)}
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         />
 
         <input
           placeholder="E-mail"
+          type="email"
           value={email}
-          onChange={(event) =>
-            setEmail(event.target.value)
-          }
+          onChange={(event) => setEmail(event.target.value)}
+          className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+        />
+
+        <input
+          placeholder="Telefone"
+          value={phone}
+          onChange={(event) => setPhone(event.target.value)}
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         />
 
         <select
           value={classId}
-          onChange={(event) =>
-            setClassId(event.target.value)
-          }
+          onChange={(event) => setClassId(event.target.value)}
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         >
-          <option value="">
-            Selecione a turma
-          </option>
+          <option value="">Selecione a turma</option>
 
           {classes.map((classItem) => (
-            <option
-              key={classItem.id}
-              value={classItem.id}
-            >
+            <option key={classItem.id} value={classItem.id}>
               {classItem.name}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={courseId}
+          onChange={(event) => setCourseId(event.target.value)}
+          className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+        >
+          <option value="">Selecione o curso</option>
+
+          {courses.map((course) => (
+            <option key={course.id} value={course.id}>
+              {course.name}
             </option>
           ))}
         </select>
@@ -177,9 +182,7 @@ export function NewStudentForm({
           placeholder="Média"
           type="number"
           value={average}
-          onChange={(event) =>
-            setAverage(event.target.value)
-          }
+          onChange={(event) => setAverage(event.target.value)}
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         />
 
@@ -187,30 +190,18 @@ export function NewStudentForm({
           placeholder="Frequência"
           type="number"
           value={attendance}
-          onChange={(event) =>
-            setAttendance(event.target.value)
-          }
+          onChange={(event) => setAttendance(event.target.value)}
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         />
 
         <select
           value={status}
-          onChange={(event) =>
-            setStatus(event.target.value)
-          }
+          onChange={(event) => setStatus(event.target.value)}
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         >
-          <option value="Regular">
-            Regular
-          </option>
-
-          <option value="Atenção">
-            Atenção
-          </option>
-
-          <option value="Excelente">
-            Excelente
-          </option>
+          <option value="Regular">Regular</option>
+          <option value="Atenção">Atenção</option>
+          <option value="Excelente">Excelente</option>
         </select>
       </div>
 
@@ -219,9 +210,7 @@ export function NewStudentForm({
         disabled={loading}
         className="mt-5 rounded-2xl bg-violet-500 px-6 py-3 font-semibold transition hover:bg-violet-400 disabled:opacity-50"
       >
-        {loading
-          ? "Salvando..."
-          : "Salvar aluno"}
+        {loading ? "Salvando..." : "Salvar aluno"}
       </button>
     </div>
   );
