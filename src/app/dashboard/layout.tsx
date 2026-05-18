@@ -15,6 +15,9 @@ import {
   LogOut,
   MessageSquare,
   Users,
+  NotebookPen,
+  History,
+  Layers3,
 } from "lucide-react";
 
 const menuItems = [
@@ -22,6 +25,11 @@ const menuItems = [
     label: "Dashboard",
     href: "/dashboard",
     icon: LayoutDashboard,
+  },
+  {
+  label: "Diário",
+  href: "/dashboard/diario",
+  icon: NotebookPen,
   },
   {
   label: "Entregas",
@@ -33,6 +41,11 @@ const menuItems = [
     href: "/dashboard/turmas",
     icon: Users,
   },
+  {
+  label: "Cursos",
+  href: "/dashboard/cursos",
+  icon: Layers3,
+},
   {
   label: "Alunos",
   href: "/dashboard/alunos",
@@ -48,6 +61,11 @@ const menuItems = [
     href: "/dashboard/frequencia",
     icon: CalendarDays,
   },
+  {
+  label: "Histórico de Frequência",
+  href: "/dashboard/frequencia/historico",
+  icon: History,
+},
   {
   label: "Notas",
   href: "/dashboard/notas",

@@ -1,3 +1,6 @@
+import { ClassComparisonChart } from "../../components/ClassComparisonChart";
+import { TopStudentsRanking } from "../../components/TopStudentsRanking";
+import { RealtimeDashboardUpdater } from "../../components/RealtimeDashboardUpdater";
 import { DashboardCharts } from "../../components/DashboardCharts";
 import {
   AlertTriangle,
@@ -27,8 +30,15 @@ export default async function DashboardPage() {
     .from("students")
 .select("id, name, average, attendance");
   const { data: classes } = await supabase
-    .from("classes")
-    .select("id");
+  .from("classes")
+  .select(`
+    id,
+    name,
+    students (
+      average,
+      attendance
+    )
+  `);
 
   const { data: observations } = await supabase
     .from("observations")
@@ -67,6 +77,7 @@ export default async function DashboardPage() {
 
   return (
     <>
+    <RealtimeDashboardUpdater />
       <header className="border-b border-slate-800 bg-slate-950/40 px-6 py-5">
         <h1 className="text-3xl font-bold">Dashboard</h1>
 
@@ -108,6 +119,7 @@ export default async function DashboardPage() {
           />
         </div>
         <DashboardCharts students={(students as any[]) ?? []} />
+        <ClassComparisonChart classes={(classes as any[]) ?? []} />
         <div className="mt-8 grid gap-6 xl:grid-cols-[2fr_1fr]">
           <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
             <h2 className="text-2xl font-bold">Indicadores pedagógicos</h2>
@@ -140,6 +152,8 @@ export default async function DashboardPage() {
               />
             </div>
           </div>
+          
+          <TopStudentsRanking students={(students as any[]) ?? []} />
 
           <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
             <h2 className="text-2xl font-bold">Últimas observações</h2>
