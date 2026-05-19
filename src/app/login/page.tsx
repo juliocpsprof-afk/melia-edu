@@ -1,63 +1,45 @@
 "use client";
 
 import { useState } from "react";
-
-import {
-  Eye,
-  GraduationCap,
-  Lock,
-  Mail,
-} from "lucide-react";
-
-import { useRouter } from "next/navigation";
+import { Eye, GraduationCap, Lock, Mail } from "lucide-react";
 
 import { supabase } from "../../lib/supabase";
 
 export default function LoginPage() {
-  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
-  const [email, setEmail] =
-    useState("");
-
-  const [password, setPassword] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleLogin() {
     setError("");
 
     if (!email || !password) {
-      setError(
-        "Preencha email e senha."
-      );
-
+      setError("Preencha email e senha.");
       return;
     }
 
     setLoading(true);
 
-    const { error } =
-      await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-    setLoading(false);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
 
     if (error) {
-      setError(
-        "Email ou senha inválidos."
-      );
-
+      setLoading(false);
+      setError(error.message || "Email ou senha inválidos.");
       return;
     }
 
-    router.push("/dashboard");
+    if (!data.session) {
+      setLoading(false);
+      setError("Login realizado, mas a sessão não foi criada.");
+      return;
+    }
+
+    window.location.href = "/dashboard";
   }
 
   return (
@@ -70,9 +52,7 @@ export default function LoginPage() {
                 <GraduationCap size={34} />
               </div>
 
-              <h1 className="text-4xl font-bold">
-                Melia EDU
-              </h1>
+              <h1 className="text-4xl font-bold">Melia EDU</h1>
             </div>
 
             <h2 className="mt-14 max-w-md text-6xl font-black leading-tight">
@@ -80,38 +60,9 @@ export default function LoginPage() {
             </h2>
 
             <p className="mt-8 max-w-xl text-lg leading-8 text-slate-300">
-              Plataforma moderna para acompanhamento
-              completo de alunos, frequência,
-              desempenho e evolução pedagógica.
+              Plataforma moderna para acompanhamento completo de alunos,
+              frequência, desempenho e evolução pedagógica.
             </p>
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
-            <p className="text-lg font-semibold">
-              Acompanhe indicadores em tempo real
-            </p>
-
-            <div className="mt-6 flex gap-6">
-              <div>
-                <p className="text-4xl font-black text-violet-300">
-                  96%
-                </p>
-
-                <span className="text-sm text-slate-400">
-                  Frequência média
-                </span>
-              </div>
-
-              <div>
-                <p className="text-4xl font-black text-violet-300">
-                  8.7
-                </p>
-
-                <span className="text-sm text-slate-400">
-                  Média geral
-                </span>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -119,10 +70,7 @@ export default function LoginPage() {
           <div className="w-full max-w-xl">
             <div className="text-center">
               <h2 className="text-5xl font-black">
-                Entrar no{" "}
-                <span className="text-violet-400">
-                  Melia EDU
-                </span>
+                Entrar no <span className="text-violet-400">Melia EDU</span>
               </h2>
 
               <p className="mt-4 text-lg text-slate-400">
@@ -149,11 +97,7 @@ export default function LoginPage() {
                     type="email"
                     placeholder="seuemail@exemplo.com"
                     value={email}
-                    onChange={(event) =>
-                      setEmail(
-                        event.target.value
-                      )
-                    }
+                    onChange={(event) => setEmail(event.target.value)}
                     className="w-full bg-transparent text-lg outline-none placeholder:text-slate-500"
                   />
                 </div>
@@ -171,11 +115,7 @@ export default function LoginPage() {
                     type="password"
                     placeholder="Digite sua senha"
                     value={password}
-                    onChange={(event) =>
-                      setPassword(
-                        event.target.value
-                      )
-                    }
+                    onChange={(event) => setPassword(event.target.value)}
                     className="w-full bg-transparent text-lg outline-none placeholder:text-slate-500"
                   />
 
@@ -188,9 +128,7 @@ export default function LoginPage() {
                 disabled={loading}
                 className="flex h-16 w-full items-center justify-center rounded-2xl bg-violet-500 text-lg font-bold transition hover:bg-violet-400 disabled:opacity-50"
               >
-                {loading
-                  ? "Entrando..."
-                  : "Entrar"}
+                {loading ? "Entrando..." : "Entrar"}
               </button>
             </div>
           </div>
