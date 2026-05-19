@@ -6,9 +6,14 @@ export type LessonDiary = {
   lesson_date: string;
   content: string;
   notes: string | null;
-  classes: {
-    name: string;
-  } | null;
+  classes:
+  | {
+      name: string;
+    }
+  | {
+      name: string;
+    }[]
+  | null;
 };
 
 type DiaryLessonCardsProps = {
@@ -31,7 +36,11 @@ export function DiaryLessonCards({ lessons }: DiaryLessonCardsProps) {
             <div className="flex flex-wrap items-center gap-3">
               <Badge
                 icon={<GraduationCap size={16} />}
-                text={lesson.classes?.name ?? "Sem turma"}
+                text={
+  Array.isArray(lesson.classes)
+    ? lesson.classes[0]?.name ?? "Sem turma"
+    : lesson.classes?.name ?? "Sem turma"
+}
               />
 
               <Badge

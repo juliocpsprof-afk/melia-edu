@@ -16,6 +16,7 @@ import {
   MessageSquare,
   Users,
   NotebookPen,
+  Sparkles,
   History,
   Layers3,
 } from "lucide-react";
@@ -75,6 +76,11 @@ const menuItems = [
     label: "Mensagens",
     href: "/dashboard/mensagens",
     icon: MessageSquare,
+  },
+  {
+  label: "Interações",
+  href: "/dashboard/interacoes",
+  icon: Sparkles,
   },
   {
     label: "Alertas",
