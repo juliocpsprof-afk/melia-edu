@@ -1,5 +1,6 @@
 "use client";
 
+import StudentRealtimeNotifications from "@/components/aluno/StudentRealtimeNotifications";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -71,7 +72,7 @@ export default function StudentAttendance() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-center text-white">
         Carregando frequência...
       </main>
     );
@@ -79,9 +80,9 @@ export default function StudentAttendance() {
 
   return (
     <main className="min-h-screen bg-slate-950 pb-24 text-white">
-      <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/80 px-5 py-4 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <div>
+      <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/80 px-4 py-4 backdrop-blur sm:px-5">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
             <Link
               href="/aluno/dashboard"
               className="mb-2 inline-flex text-sm text-cyan-300 hover:text-cyan-200"
@@ -89,34 +90,36 @@ export default function StudentAttendance() {
               ← Voltar ao painel
             </Link>
 
-            <h1 className="text-3xl font-black">Frequência</h1>
+            <h1 className="text-2xl font-black sm:text-3xl">Frequência</h1>
 
-            <p className="mt-1 text-sm text-slate-400">
-              Acompanhe sua presença nas aulas.
+            <p className="mt-1 max-w-md text-sm text-slate-400">
+              Acompanhe sua presença nas aulas, faltas e histórico.
             </p>
           </div>
 
-          <div className="rounded-[28px] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 p-5">
+          <div className="shrink-0 rounded-[28px] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 p-4 sm:p-5">
             <p className="text-xs text-cyan-300">Presença</p>
-            <h2 className="mt-2 text-4xl font-black text-white">
+
+            <h2 className="mt-2 text-3xl font-black text-white sm:text-4xl">
               {stats.percentage}%
             </h2>
           </div>
         </div>
       </header>
 
-      <section className="mx-auto max-w-6xl px-5 py-8">
-        <div className="grid gap-6 lg:grid-cols-4">
-          <div className="rounded-[32px] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 p-6 lg:col-span-2">
-            <div className="flex items-center justify-between">
+      <section className="mx-auto max-w-6xl px-4 py-6 sm:px-5 sm:py-8">
+        <div className="grid gap-4 sm:gap-6 lg:grid-cols-4">
+          <div className="rounded-[28px] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 p-5 sm:rounded-[32px] sm:p-6 lg:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <p className="text-sm text-cyan-300">Progresso</p>
-                <h2 className="mt-2 text-5xl font-black text-white">
+
+                <h2 className="mt-2 text-4xl font-black text-white sm:text-5xl">
                   {stats.percentage}%
                 </h2>
               </div>
 
-              <CalendarCheck className="h-14 w-14 text-cyan-300" />
+              <CalendarCheck className="h-12 w-12 shrink-0 text-cyan-300 sm:h-14 sm:w-14" />
             </div>
 
             <div className="mt-6 h-5 overflow-hidden rounded-full bg-slate-800">
@@ -133,32 +136,37 @@ export default function StudentAttendance() {
             </p>
           </div>
 
-          <div className="rounded-[32px] border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-green-500/10 p-6">
-            <CheckCircle2 className="h-10 w-10 text-emerald-300" />
+          <div className="rounded-[28px] border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-green-500/10 p-5 sm:rounded-[32px] sm:p-6">
+            <CheckCircle2 className="h-9 w-9 text-emerald-300 sm:h-10 sm:w-10" />
+
             <p className="mt-4 text-sm text-emerald-300">Presenças</p>
-            <h2 className="mt-2 text-4xl font-black text-white">
+
+            <h2 className="mt-2 text-3xl font-black text-white sm:text-4xl">
               {stats.present}
             </h2>
           </div>
 
-          <div className="rounded-[32px] border border-red-500/20 bg-gradient-to-br from-red-500/10 to-orange-500/10 p-6">
-            <XCircle className="h-10 w-10 text-red-300" />
+          <div className="rounded-[28px] border border-red-500/20 bg-gradient-to-br from-red-500/10 to-orange-500/10 p-5 sm:rounded-[32px] sm:p-6">
+            <XCircle className="h-9 w-9 text-red-300 sm:h-10 sm:w-10" />
+
             <p className="mt-4 text-sm text-red-300">Faltas</p>
-            <h2 className="mt-2 text-4xl font-black text-white">
+
+            <h2 className="mt-2 text-3xl font-black text-white sm:text-4xl">
               {stats.absent}
             </h2>
           </div>
         </div>
 
-        <div className="mt-6 rounded-[32px] border border-yellow-500/20 bg-gradient-to-br from-yellow-500/10 to-orange-500/10 p-6">
-          <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-yellow-500/20">
+        <div className="mt-6 rounded-[28px] border border-yellow-500/20 bg-gradient-to-br from-yellow-500/10 to-orange-500/10 p-5 sm:rounded-[32px] sm:p-6">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-3xl bg-yellow-500/20">
               <Flame className="h-7 w-7 text-yellow-300" />
             </div>
 
-            <div>
+            <div className="min-w-0">
               <p className="text-sm text-yellow-300">Sequência recente</p>
-              <h2 className="text-2xl font-black text-white">
+
+              <h2 className="text-xl font-black text-white sm:text-2xl">
                 {records.slice(0, 5).filter((item) => isPresent(item.status)).length}
                 /5 presenças recentes
               </h2>
@@ -166,10 +174,11 @@ export default function StudentAttendance() {
           </div>
         </div>
 
-        <div className="mt-8 rounded-[32px] border border-slate-800 bg-slate-900/70 p-6">
+        <div className="mt-8 rounded-[28px] border border-slate-800 bg-slate-900/70 p-5 sm:rounded-[32px] sm:p-6">
           <div className="mb-6">
             <p className="text-sm text-cyan-300">Calendário visual</p>
-            <h2 className="mt-2 text-2xl font-black text-white">
+
+            <h2 className="mt-2 text-xl font-black text-white sm:text-2xl">
               Últimos registros
             </h2>
           </div>
@@ -177,7 +186,7 @@ export default function StudentAttendance() {
           {recentDays.length === 0 ? (
             <p className="text-slate-400">Nenhum registro encontrado.</p>
           ) : (
-            <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 md:grid-cols-7">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7">
               {recentDays.map((item) => {
                 const present = isPresent(item.status);
 
@@ -213,10 +222,11 @@ export default function StudentAttendance() {
           )}
         </div>
 
-        <div className="mt-8 rounded-[32px] border border-slate-800 bg-slate-900/70 p-6">
+        <div className="mt-8 rounded-[28px] border border-slate-800 bg-slate-900/70 p-5 sm:rounded-[32px] sm:p-6">
           <div className="mb-6">
             <p className="text-sm text-purple-300">Histórico completo</p>
-            <h2 className="mt-2 text-2xl font-black text-white">
+
+            <h2 className="mt-2 text-xl font-black text-white sm:text-2xl">
               Todos os registros
             </h2>
           </div>
@@ -231,16 +241,16 @@ export default function StudentAttendance() {
                 return (
                   <div
                     key={item.id}
-                    className="flex items-center justify-between rounded-3xl border border-slate-800 bg-slate-950 p-4"
+                    className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-800 bg-slate-950 p-4"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-semibold text-white">
                         {item.date
                           ? new Date(item.date).toLocaleDateString("pt-BR")
                           : "Sem data"}
                       </p>
 
-                      <p className="mt-1 text-sm text-slate-400">
+                      <p className="mt-1 break-words text-sm text-slate-400">
                         {item.arrival_time
                           ? `Chegada: ${item.arrival_time}`
                           : item.notes || "Sem observações"}
@@ -248,7 +258,7 @@ export default function StudentAttendance() {
                     </div>
 
                     <span
-                      className={`rounded-2xl px-3 py-2 text-sm font-semibold ${
+                      className={`shrink-0 rounded-2xl px-3 py-2 text-sm font-semibold ${
                         present
                           ? "bg-emerald-500/20 text-emerald-300"
                           : "bg-red-500/20 text-red-300"
@@ -263,6 +273,8 @@ export default function StudentAttendance() {
           </div>
         </div>
       </section>
+
+      <StudentRealtimeNotifications />
     </main>
   );
 }

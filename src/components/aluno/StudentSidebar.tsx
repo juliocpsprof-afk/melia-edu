@@ -11,6 +11,7 @@ import {
   Bell,
   Users,
   Link2,
+  Zap,
 } from "lucide-react";
 
 const menuItems = [
@@ -20,6 +21,7 @@ const menuItems = [
   { href: "/aluno/notas", icon: Trophy, label: "Notas" },
   { href: "/aluno/atividades", icon: BookOpen, label: "Atividades" },
   { href: "/aluno/sorteios", icon: Users, label: "Sorteios" },
+  { href: "/aluno/gamificacao", icon: Zap, label: "Gamificação" },
   { href: "/aluno/botoes", icon: Link2, label: "Links" },
   { href: "/aluno/notificacoes", icon: Bell, label: "Avisos" },
 ];

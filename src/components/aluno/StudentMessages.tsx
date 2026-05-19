@@ -1,5 +1,6 @@
 "use client";
 
+import StudentRealtimeNotifications from "@/components/aluno/StudentRealtimeNotifications";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -129,7 +130,7 @@ export default function StudentMessages() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-center text-white">
         Carregando mensagens...
       </main>
     );
@@ -137,9 +138,9 @@ export default function StudentMessages() {
 
   return (
     <main className="flex min-h-screen flex-col bg-slate-950 text-white">
-      <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/80 px-5 py-4 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
-          <div>
+      <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/80 px-4 py-4 backdrop-blur sm:px-5">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
             <Link
               href="/aluno/dashboard"
               className="mb-2 inline-flex text-sm text-cyan-300 hover:text-cyan-200"
@@ -147,16 +148,16 @@ export default function StudentMessages() {
               ← Voltar ao painel
             </Link>
 
-            <h1 className="text-2xl font-black">
+            <h1 className="text-2xl font-black sm:text-3xl">
               Chat com o professor
             </h1>
 
-            <p className="text-sm text-slate-400">
+            <p className="mt-1 text-sm text-slate-400">
               Mensagens em tempo real
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+          <div className="shrink-0 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
             <div className="flex items-center gap-2">
               <div className="h-2 w-2 rounded-full bg-green-400" />
               <span className="text-sm font-medium">Online</span>
@@ -165,10 +166,10 @@ export default function StudentMessages() {
         </div>
       </header>
 
-      <section className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-5 py-6">
+      <section className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-5 sm:px-5 sm:py-6">
         <div className="flex-1 space-y-4 overflow-y-auto pb-32">
           {messages.length === 0 ? (
-            <div className="rounded-[32px] border border-slate-800 bg-slate-900/70 p-8 text-center text-slate-300">
+            <div className="rounded-[28px] border border-slate-800 bg-slate-900/70 p-8 text-center text-slate-300 sm:rounded-[32px]">
               Nenhuma mensagem ainda. Envie a primeira mensagem para o professor.
             </div>
           ) : (
@@ -181,7 +182,7 @@ export default function StudentMessages() {
                   className={`flex ${isStudent ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[80%] rounded-[28px] px-5 py-4 shadow-lg ${
+                    className={`max-w-[88%] break-words rounded-[24px] px-4 py-3 shadow-lg sm:max-w-[80%] sm:rounded-[28px] sm:px-5 sm:py-4 ${
                       isStudent
                         ? "bg-gradient-to-br from-cyan-500 to-blue-600 text-white"
                         : "border border-slate-800 bg-slate-900 text-slate-100"
@@ -211,8 +212,8 @@ export default function StudentMessages() {
         </div>
       </section>
 
-      <footer className="fixed bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-950/90 px-5 py-4 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl gap-3">
+      <footer className="fixed bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-950/95 px-3 py-3 backdrop-blur sm:px-5 sm:py-4">
+        <div className="mx-auto flex max-w-5xl gap-2 sm:gap-3">
           <input
             value={text}
             onChange={(event) => setText(event.target.value)}
@@ -222,18 +223,20 @@ export default function StudentMessages() {
               }
             }}
             placeholder="Digite sua mensagem..."
-            className="flex-1 rounded-2xl border border-slate-700 bg-slate-900 px-4 py-4 text-white outline-none transition focus:border-cyan-400"
+            className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-400 sm:py-4 sm:text-base"
           />
 
           <button
             onClick={handleSendMessage}
             disabled={sending || !text.trim()}
-            className="flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-500 text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-cyan-500 text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50 sm:h-14 sm:w-14"
           >
             <Send className="h-5 w-5" />
           </button>
         </div>
       </footer>
+
+      <StudentRealtimeNotifications />
     </main>
   );
 }

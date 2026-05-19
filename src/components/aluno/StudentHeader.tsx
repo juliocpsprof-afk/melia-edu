@@ -1,19 +1,12 @@
 "use client";
 
+import StudentAvatar from "./StudentAvatar";
+
 type StudentHeaderProps = {
   studentName: string;
   classNameValue: string;
   onLogout: () => void;
 };
-
-function getInitials(name: string) {
-  const parts = name.trim().split(" ").filter(Boolean);
-
-  if (parts.length === 0) return "A";
-  if (parts.length === 1) return parts[0][0].toUpperCase();
-
-  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-}
 
 export default function StudentHeader({
   studentName,
@@ -22,35 +15,32 @@ export default function StudentHeader({
 }: StudentHeaderProps) {
   return (
     <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/70 backdrop-blur">
-      <div className="flex items-center justify-between px-6 py-5">
-        <div>
-          <p className="text-sm font-medium text-cyan-300">
+      <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6 sm:py-5">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-cyan-300">
             {classNameValue}
           </p>
 
-          <h1 className="text-2xl font-black text-white">
+          <h1 className="truncate text-xl font-black text-white sm:text-2xl">
             {studentName}
           </h1>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex shrink-0 items-center gap-3 sm:gap-4">
           <div className="hidden rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 md:block">
             <p className="text-xs text-slate-400">Status</p>
 
             <div className="mt-1 flex items-center gap-2">
               <div className="h-2 w-2 rounded-full bg-green-400" />
-
               <p className="text-sm font-medium text-white">Online</p>
             </div>
           </div>
 
-          <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-gradient-to-br from-purple-500 to-pink-500 text-lg font-black text-white shadow-lg shadow-purple-500/20">
-            {getInitials(studentName)}
-          </div>
+          <StudentAvatar name={studentName} size="md" />
 
           <button
             onClick={onLogout}
-            className="rounded-2xl border border-slate-700 px-4 py-3 text-sm font-semibold text-slate-300 transition hover:border-red-400 hover:bg-red-500/10 hover:text-red-200"
+            className="rounded-2xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-300 transition hover:border-red-400 hover:bg-red-500/10 hover:text-red-200 sm:px-4 sm:py-3"
           >
             Sair
           </button>
