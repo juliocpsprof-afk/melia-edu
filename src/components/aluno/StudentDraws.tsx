@@ -22,11 +22,18 @@ type DrawResult = {
   class_name: string | null;
   team_number: number | null;
   created_at: string | null;
-  interaction_draws?: {
-    draw_type: string;
-    team_size: number | null;
-    created_at: string | null;
-  } | null;
+ interaction_draws?:
+  | {
+      draw_type?: string | null;
+      team_size?: number | null;
+      created_at?: string | null;
+    }
+  | {
+      draw_type?: string | null;
+      team_size?: number | null;
+      created_at?: string | null;
+    }[]
+  | null;
 };
 
 export default function StudentDraws() {

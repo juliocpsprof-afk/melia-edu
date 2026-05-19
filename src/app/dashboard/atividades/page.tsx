@@ -1,4 +1,4 @@
-import { CalendarDays, GraduationCap, Trash2 } from "lucide-react";
+import { CalendarDays, GraduationCap } from "lucide-react";
 
 import { supabase } from "../../../lib/supabase";
 import { NewActivityForm } from "../../../components/NewActivityForm";
@@ -11,11 +11,16 @@ type ClassItem = {
 type Activity = {
   id: string;
   title: string;
-  description: string;
+  description: string | null;
   due_date: string;
-  classes: {
-    name: string;
-  } | null;
+  classes:
+    | {
+        name?: string | null;
+      }
+    | {
+        name?: string | null;
+      }[]
+    | null;
 };
 
 export default async function AtividadesPage() {
@@ -48,6 +53,26 @@ export default async function AtividadesPage() {
     );
   }
 
+  const safeClasses: ClassItem[] =
+    classes?.map((classItem) => ({
+      id: String(classItem.id),
+      name: String(classItem.name ?? "Turma sem nome"),
+    })) ?? [];
+
+  const safeActivities: Activity[] = (activities as Activity[] | null) ?? [];
+
+  function getClassName(activity: Activity) {
+    if (!activity.classes) {
+      return "Sem turma";
+    }
+
+    if (Array.isArray(activity.classes)) {
+      return activity.classes[0]?.name || "Sem turma";
+    }
+
+    return activity.classes.name || "Sem turma";
+  }
+
   return (
     <>
       <header className="border-b border-slate-800 bg-slate-950/40 px-6 py-5">
@@ -59,15 +84,15 @@ export default async function AtividadesPage() {
       </header>
 
       <section className="p-6">
-        <NewActivityForm classes={(classes as ClassItem[]) ?? []} />
+        <NewActivityForm classes={safeClasses} />
 
         <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {(activities as Activity[] | null)?.length === 0 ? (
+          {safeActivities.length === 0 ? (
             <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 text-slate-400">
               Nenhuma atividade cadastrada.
             </div>
           ) : (
-            (activities as Activity[] | null)?.map((activity) => (
+            safeActivities.map((activity) => (
               <div
                 key={activity.id}
                 className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 transition hover:border-violet-500/40"
@@ -78,14 +103,14 @@ export default async function AtividadesPage() {
                   </div>
 
                   <span className="rounded-full border border-slate-700 px-3 py-1 text-sm text-slate-300">
-                    {activity.classes?.name || "Sem turma"}
+                    {getClassName(activity)}
                   </span>
                 </div>
 
                 <h2 className="mt-6 text-2xl font-bold">{activity.title}</h2>
 
                 <p className="mt-3 line-clamp-3 text-slate-400">
-                  {activity.description}
+                  {activity.description || "Sem descrição."}
                 </p>
 
                 <div className="mt-6 flex items-center gap-3 text-slate-300">

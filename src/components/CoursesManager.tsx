@@ -5,15 +5,27 @@ import toast from "react-hot-toast";
 import { BookOpen, Plus, Save } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
+type CurriculumLesson = {
+  id: string;
+  title: string;
+  content: string;
+  notes: string;
+  lesson_order: number | null;
+};
+
 type Course = {
   id: string;
   name: string;
   description: string | null;
-  curriculum_lessons: {
-    id: string;
-    title: string;
-    lesson_order: number | null;
-  }[];
+  curriculum_lessons: CurriculumLesson[];
+};
+
+type BulkLessonRow = {
+  course_id: string;
+  lesson_order: number;
+  title: string;
+  content: string;
+  notes: string;
 };
 
 export function CoursesManager({ courses }: { courses: Course[] }) {
@@ -54,8 +66,12 @@ export function CoursesManager({ courses }: { courses: Course[] }) {
       return;
     }
 
-    const selectedCourse = courses.find((course) => course.id === selectedCourseId);
-    const nextOrder = (selectedCourse?.curriculum_lessons?.length ?? 0) + 1;
+    const selectedCourse = courses.find(
+      (course) => course.id === selectedCourseId
+    );
+
+    const nextOrder =
+      (selectedCourse?.curriculum_lessons?.length ?? 0) + 1;
 
     const { error } = await supabase.from("curriculum_lessons").insert({
       course_id: selectedCourseId,
@@ -79,71 +95,66 @@ export function CoursesManager({ courses }: { courses: Course[] }) {
   }
 
   async function addBulkLessons() {
-  if (!bulkLessons.trim()) {
-    toast.error("Cole a lista de aulas para inserir em massa.");
-    return;
-  }
+    if (!bulkLessons.trim()) {
+      toast.error("Cole a lista de aulas para inserir em massa.");
+      return;
+    }
 
-  const rows = bulkLessons
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line, index) => {
-      const separator = line.includes("\t") ? "\t" : ";";
+    const rows = bulkLessons
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line, index): BulkLessonRow | null => {
+        const separator = line.includes("\t") ? "\t" : ";";
 
-      const [courseName, lessonTitle, lessonContent, lessonNotes] = line
-        .split(separator)
-        .map((item) => item.trim());
+        const [courseName, lessonTitle, lessonContent, lessonNotes] = line
+          .split(separator)
+          .map((item) => item.trim());
 
-      const course = courses.find(
-        (item) =>
-          item.name.toLowerCase() === courseName?.toLowerCase()
+        const course = courses.find(
+          (item) => item.name.toLowerCase() === courseName?.toLowerCase()
+        );
+
+        if (!course || !lessonTitle || !lessonContent) {
+          return null;
+        }
+
+        const currentCount = course.curriculum_lessons?.length ?? 0;
+
+        return {
+          course_id: course.id,
+          lesson_order: currentCount + index + 1,
+          title: lessonTitle,
+          content: lessonContent,
+          notes: lessonNotes ?? "",
+        };
+      })
+      .filter((row): row is BulkLessonRow => row !== null);
+
+    if (rows.length === 0) {
+      toast.error(
+        "Nenhuma linha válida encontrada. Verifique se o nome do curso está igual ao cadastrado."
       );
+      return;
+    }
 
-      if (!course || !lessonTitle || !lessonContent) {
-        return null;
-      }
+    const { error } = await supabase
+      .from("curriculum_lessons")
+      .insert(rows);
 
-      const currentCount =
-        course.curriculum_lessons?.length ?? 0;
+    if (error) {
+      toast.error("Erro ao inserir grade em massa.");
+      console.error(error);
+      return;
+    }
 
-      return {
-        course_id: course.id,
-        lesson_order: currentCount + index + 1,
-        title: lessonTitle,
-        content: lessonContent,
-        notes: lessonNotes ?? "",
-      };
-    })
-    .filter(Boolean);
+    toast.success("Grade curricular inserida com sucesso!");
+    setBulkLessons("");
 
-  if (rows.length === 0) {
-    toast.error(
-      "Nenhuma linha válida encontrada. Verifique se o nome do curso está igual ao cadastrado."
-    );
-    return;
+    setTimeout(() => {
+      window.location.reload();
+    }, 700);
   }
-
-  const { error } = await supabase
-    .from("curriculum_lessons")
-    .insert(rows);
-
-  if (error) {
-    toast.error("Erro ao inserir grade em massa.");
-    console.error(error);
-    return;
-  }
-
-  toast.success("Grade curricular inserida com sucesso!");
-
-  setBulkLessons("");
-
-  setTimeout(() => {
-    window.location.reload();
-  }, 700);
-}
-
-  const selectedCourse = courses.find((course) => course.id === selectedCourseId);
 
   return (
     <div className="space-y-8">
@@ -269,14 +280,17 @@ Wisdom;Aula 1 - Acolhimento;Apresentação do curso;Registrar expectativas da tu
                 <h3 className="text-xl font-bold">{course.name}</h3>
 
                 {course.description && (
-                  <p className="mt-2 text-slate-400">{course.description}</p>
+                  <p className="mt-2 text-slate-400">
+                    {course.description}
+                  </p>
                 )}
 
                 <div className="mt-5 space-y-2">
                   {(course.curriculum_lessons ?? [])
                     .sort(
                       (a, b) =>
-                        Number(a.lesson_order ?? 0) - Number(b.lesson_order ?? 0)
+                        Number(a.lesson_order ?? 0) -
+                        Number(b.lesson_order ?? 0)
                     )
                     .map((lesson) => (
                       <div

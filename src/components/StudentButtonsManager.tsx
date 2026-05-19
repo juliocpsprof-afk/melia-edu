@@ -228,7 +228,13 @@ export function StudentButtonsManager({ students }: Props) {
       (line) => !normalizeText(line).startsWith("aluno")
     );
 
-    const rows = [];
+    const rows: {
+  student_id: string;
+  student_name: string;
+  button_order: number;
+  button_label: string;
+  button_url: string;
+}[] = [];
 
     for (const line of dataLines) {
       const columns = line.split("\t").map((item) => item.trim());

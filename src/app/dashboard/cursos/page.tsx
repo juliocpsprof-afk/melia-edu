@@ -1,4 +1,6 @@
+import type { ReactNode } from "react";
 import { BookOpen, GraduationCap, Layers3 } from "lucide-react";
+
 import { supabase } from "../../../lib/supabase";
 import { CoursesManager } from "../../../components/CoursesManager";
 
@@ -9,6 +11,8 @@ type Course = {
   curriculum_lessons: {
     id: string;
     title: string;
+    content: string;
+    notes: string;
     lesson_order: number | null;
   }[];
 };
@@ -23,6 +27,8 @@ export default async function CursosPage() {
       curriculum_lessons (
         id,
         title,
+        content,
+        notes,
         lesson_order
       )
     `)
@@ -37,16 +43,31 @@ export default async function CursosPage() {
     );
   }
 
-  const totalLessons =
-    (courses as Course[] | null)?.reduce(
-      (sum, course) => sum + (course.curriculum_lessons?.length ?? 0),
-      0
-    ) ?? 0;
+  const safeCourses: Course[] =
+    ((courses as unknown as Course[] | null) ?? []).map((course) => ({
+      id: String(course.id),
+      name: String(course.name ?? "Curso sem nome"),
+      description: course.description,
+      curriculum_lessons:
+        course.curriculum_lessons?.map((lesson) => ({
+          id: String(lesson.id),
+          title: String(lesson.title ?? "Aula sem título"),
+          content: String(lesson.content ?? ""),
+          notes: String(lesson.notes ?? ""),
+          lesson_order: lesson.lesson_order,
+        })) ?? [],
+    }));
+
+  const totalLessons = safeCourses.reduce(
+    (sum, course) => sum + course.curriculum_lessons.length,
+    0
+  );
 
   return (
     <>
       <header className="border-b border-slate-800 bg-slate-950/40 px-6 py-5">
         <h1 className="text-3xl font-bold">Cursos</h1>
+
         <p className="mt-1 text-slate-400">
           Cadastre cursos da instituição e organize a grade curricular.
         </p>
@@ -56,7 +77,7 @@ export default async function CursosPage() {
         <div className="mb-8 grid gap-5 md:grid-cols-3">
           <SummaryCard
             title="Cursos cadastrados"
-            value={String((courses as Course[] | null)?.length ?? 0)}
+            value={String(safeCourses.length)}
             icon={<GraduationCap />}
           />
 
@@ -73,7 +94,7 @@ export default async function CursosPage() {
           />
         </div>
 
-        <CoursesManager courses={(courses as Course[]) ?? []} />
+        <CoursesManager courses={safeCourses} />
       </section>
     </>
   );
@@ -86,7 +107,7 @@ function SummaryCard({
 }: {
   title: string;
   value: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }) {
   return (
     <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
