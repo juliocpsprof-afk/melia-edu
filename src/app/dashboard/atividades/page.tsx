@@ -1,26 +1,13 @@
-import { CalendarDays, GraduationCap } from "lucide-react";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 import { supabase } from "../../../lib/supabase";
 import { NewActivityForm } from "../../../components/NewActivityForm";
+import { ActivitiesManager } from "../../../components/ActivitiesManager";
 
 type ClassItem = {
   id: string;
   name: string;
-};
-
-type Activity = {
-  id: string;
-  title: string;
-  description: string | null;
-  due_date: string;
-  classes:
-    | {
-        name?: string | null;
-      }
-    | {
-        name?: string | null;
-      }[]
-    | null;
 };
 
 export default async function AtividadesPage() {
@@ -36,18 +23,42 @@ export default async function AtividadesPage() {
       title,
       description,
       due_date,
+      class_id,
+      archived,
       classes (
         name
       )
     `)
     .order("due_date", { ascending: true });
 
-  if (classesError || activitiesError) {
+  const { data: students, error: studentsError } = await supabase
+    .from("students")
+    .select("id, name, class_id")
+    .order("name", { ascending: true });
+
+  const { data: submissions, error: submissionsError } = await supabase
+    .from("submissions")
+    .select(`
+      id,
+      activity_id,
+      student_id,
+      grade,
+      status,
+      students (
+        name
+      )
+    `);
+
+  if (classesError || activitiesError || studentsError || submissionsError) {
     return (
       <div className="p-6 text-white">
         <h1 className="text-3xl font-bold">Erro ao carregar atividades</h1>
+
         <p className="mt-2 text-red-300">
-          {classesError?.message || activitiesError?.message}
+          {classesError?.message ||
+            activitiesError?.message ||
+            studentsError?.message ||
+            submissionsError?.message}
         </p>
       </div>
     );
@@ -59,19 +70,48 @@ export default async function AtividadesPage() {
       name: String(classItem.name ?? "Turma sem nome"),
     })) ?? [];
 
-  const safeActivities: Activity[] = (activities as Activity[] | null) ?? [];
+  const safeActivities =
+    activities?.map((activity: any) => {
+      const classRelation = Array.isArray(activity.classes)
+        ? activity.classes[0]
+        : activity.classes;
 
-  function getClassName(activity: Activity) {
-    if (!activity.classes) {
-      return "Sem turma";
-    }
+      return {
+        id: String(activity.id),
+        title: String(activity.title ?? "Atividade sem título"),
+        description: activity.description ?? null,
+        due_date: String(activity.due_date),
+        class_id: activity.class_id ? String(activity.class_id) : null,
+        class_name: String(classRelation?.name ?? "Sem turma"),
+        archived: activity.archived === true,
+      };
+    }) ?? [];
 
-    if (Array.isArray(activity.classes)) {
-      return activity.classes[0]?.name || "Sem turma";
-    }
+  const safeStudents =
+    students?.map((student) => ({
+      id: String(student.id),
+      name: String(student.name ?? "Aluno sem nome"),
+      class_id: student.class_id ? String(student.class_id) : null,
+    })) ?? [];
 
-    return activity.classes.name || "Sem turma";
-  }
+  const safeSubmissions =
+    submissions?.map((submission: any) => {
+      const studentRelation = Array.isArray(submission.students)
+        ? submission.students[0]
+        : submission.students;
+
+      return {
+        id: String(submission.id),
+        activity_id: String(submission.activity_id),
+        student_id: String(submission.student_id),
+        grade:
+          submission.grade === null || submission.grade === undefined
+            ? null
+            : Number(submission.grade),
+        status: submission.status ?? null,
+        student_name: String(studentRelation?.name ?? "Aluno"),
+      };
+    }) ?? [];
 
   return (
     <>
@@ -79,52 +119,19 @@ export default async function AtividadesPage() {
         <h1 className="text-3xl font-bold">Atividades</h1>
 
         <p className="mt-1 text-slate-400">
-          Crie atividades por turma e acompanhe os prazos.
+          Crie, acompanhe, arquive, edite e analise atividades por turma.
         </p>
       </header>
 
       <section className="p-6">
         <NewActivityForm classes={safeClasses} />
 
-        <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {safeActivities.length === 0 ? (
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 text-slate-400">
-              Nenhuma atividade cadastrada.
-            </div>
-          ) : (
-            safeActivities.map((activity) => (
-              <div
-                key={activity.id}
-                className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 transition hover:border-violet-500/40"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="rounded-2xl bg-violet-500/15 p-4 text-violet-400">
-                    <GraduationCap size={32} />
-                  </div>
-
-                  <span className="rounded-full border border-slate-700 px-3 py-1 text-sm text-slate-300">
-                    {getClassName(activity)}
-                  </span>
-                </div>
-
-                <h2 className="mt-6 text-2xl font-bold">{activity.title}</h2>
-
-                <p className="mt-3 line-clamp-3 text-slate-400">
-                  {activity.description || "Sem descrição."}
-                </p>
-
-                <div className="mt-6 flex items-center gap-3 text-slate-300">
-                  <CalendarDays size={20} className="text-violet-400" />
-
-                  <span>
-                    Entrega:{" "}
-                    {new Date(activity.due_date).toLocaleDateString("pt-BR")}
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+        <ActivitiesManager
+          activities={safeActivities}
+          classes={safeClasses}
+          students={safeStudents}
+          submissions={safeSubmissions}
+        />
       </section>
     </>
   );

@@ -74,12 +74,16 @@ export default async function DiarioPage() {
     );
   }
 
+  const safeLessons =
+    (lessons as unknown as LessonDiary[] | null) ?? [];
+
   return (
     <>
       <header className="border-b border-slate-800 bg-slate-950/40 px-6 py-5">
         <h1 className="text-3xl font-bold">Diário de Classe</h1>
+
         <p className="mt-1 text-slate-400">
-          Registre as aulas ministradas e vincule o conteúdo à chamada.
+          Registre, edite e acompanhe as aulas ministradas.
         </p>
       </header>
 
@@ -90,7 +94,7 @@ export default async function DiarioPage() {
           curriculumLessons={(curriculumLessons as CurriculumLesson[]) ?? []}
         />
 
-        <DiaryLessonCards lessons={(lessons as LessonDiary[]) ?? []} />
+        <DiaryLessonCards lessons={safeLessons} />
       </section>
     </>
   );

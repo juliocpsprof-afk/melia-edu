@@ -47,11 +47,17 @@ function getInitials(name: string | null) {
 }
 
 function getTheme(id: string) {
-  const total = id
-    .split("")
-    .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const total = id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
 
   return avatarThemes[total % avatarThemes.length];
+}
+
+function normalizeText(value: string | null) {
+  return (value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
 }
 
 export default function StudentList({ classId }: { classId: string }) {
@@ -62,6 +68,8 @@ export default function StudentList({ classId }: { classId: string }) {
 
   useEffect(() => {
     async function loadData() {
+      setLoading(true);
+
       const [classResponse, studentsResponse] = await Promise.all([
         supabase
           .from("classes")
@@ -93,11 +101,23 @@ export default function StudentList({ classId }: { classId: string }) {
   }, [classId]);
 
   const visibleStudents = useMemo(() => {
+    const normalizedSearch = normalizeText(search);
+
+    if (!normalizedSearch) {
+      return students.filter((student) => Boolean(student.name));
+    }
+
     return students
       .filter((student) => Boolean(student.name))
-      .filter((student) =>
-        getShortName(student.name).toLowerCase().includes(search.toLowerCase())
-      );
+      .filter((student) => {
+        const fullName = normalizeText(student.name);
+        const shortName = normalizeText(getShortName(student.name));
+
+        return (
+          fullName.includes(normalizedSearch) ||
+          shortName.includes(normalizedSearch)
+        );
+      });
   }, [students, search]);
 
   if (loading) {
@@ -144,6 +164,7 @@ export default function StudentList({ classId }: { classId: string }) {
             <Search className="h-5 w-5 text-cyan-300" />
 
             <input
+              type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar meu nome..."
@@ -154,7 +175,9 @@ export default function StudentList({ classId }: { classId: string }) {
 
         {visibleStudents.length === 0 ? (
           <div className="rounded-[32px] border border-slate-800 bg-slate-900/80 p-8 text-center text-slate-300">
-            Nenhum aluno encontrado nesta turma.
+            {search.trim()
+              ? "Nenhum aluno encontrado com esse nome."
+              : "Nenhum aluno encontrado nesta turma."}
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
