@@ -14,7 +14,6 @@ export function NewActivityForm({ classes }: { classes: ClassItem[] }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
-
   const [loading, setLoading] = useState(false);
 
   const [message, setMessage] = useState<{
@@ -38,9 +37,10 @@ export function NewActivityForm({ classes }: { classes: ClassItem[] }) {
 
     const { error } = await supabase.from("activities").insert({
       class_id: classId,
-      title,
-      description,
+      title: title.trim(),
+      description: description.trim(),
       due_date: dueDate,
+      archived: false,
     });
 
     setLoading(false);

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCircle, XCircle } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CheckCircle, Search, Users, XCircle } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 type Student = {
   id: string;
   name: string;
+  class_id?: string | null;
 };
 
 type Activity = {
@@ -14,17 +15,25 @@ type Activity = {
   title: string;
 };
 
+type ClassItem = {
+  id: string;
+  name: string;
+};
+
 export function NewSubmissionForm({
   students,
   activities,
+  classes = [],
 }: {
   students: Student[];
   activities: Activity[];
+  classes?: ClassItem[];
 }) {
   const [studentId, setStudentId] = useState("");
   const [activityId, setActivityId] = useState("");
   const [content, setContent] = useState("");
-
+  const [classFilter, setClassFilter] = useState("");
+  const [studentSearch, setStudentSearch] = useState("");
   const [loading, setLoading] = useState(false);
 
   const [message, setMessage] = useState<{
@@ -32,13 +41,34 @@ export function NewSubmissionForm({
     text: string;
   } | null>(null);
 
+  function normalizeText(value: string) {
+    return value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+  }
+
+  const visibleStudents = useMemo(() => {
+    const search = normalizeText(studentSearch);
+
+    return students.filter((student) => {
+      const matchesClass = classFilter ? student.class_id === classFilter : true;
+      const matchesSearch = search
+        ? normalizeText(student.name).includes(search)
+        : true;
+
+      return matchesClass && matchesSearch;
+    });
+  }, [students, classFilter, studentSearch]);
+
   async function handleCreateSubmission() {
     setMessage(null);
 
-    if (!studentId || !activityId || !content) {
+    if (!studentId || !activityId) {
       setMessage({
         type: "error",
-        text: "Preencha todos os campos.",
+        text: "Selecione o aluno e a atividade.",
       });
 
       return;
@@ -46,13 +76,12 @@ export function NewSubmissionForm({
 
     setLoading(true);
 
-    const { error } = await supabase
-      .from("submissions")
-      .insert({
-        student_id: studentId,
-        activity_id: activityId,
-        content,
-      });
+    const { error } = await supabase.from("submissions").insert({
+      student_id: studentId,
+      activity_id: activityId,
+      content: content.trim() || null,
+      status: "Pendente",
+    });
 
     setLoading(false);
 
@@ -73,6 +102,7 @@ export function NewSubmissionForm({
     setStudentId("");
     setActivityId("");
     setContent("");
+    setStudentSearch("");
 
     setTimeout(() => {
       window.location.reload();
@@ -80,14 +110,24 @@ export function NewSubmissionForm({
   }
 
   return (
-    <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
-      <h2 className="text-2xl font-bold">
-        Nova entrega
-      </h2>
+    <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-white">Nova entrega</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Registre uma atividade entregue por um aluno.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 rounded-2xl bg-violet-500/10 px-3 py-2 text-sm font-semibold text-violet-300">
+          <Users size={16} />
+          {visibleStudents.length} aluno(s)
+        </div>
+      </div>
 
       {message && (
         <div
-          className={`mt-5 flex items-center gap-3 rounded-2xl border px-4 py-3 ${
+          className={`mt-4 flex items-center gap-3 rounded-2xl border px-4 py-3 ${
             message.type === "success"
               ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
               : "border-red-500/30 bg-red-500/10 text-red-300"
@@ -99,29 +139,50 @@ export function NewSubmissionForm({
             <XCircle size={20} />
           )}
 
-          <span className="font-medium">
-            {message.text}
-          </span>
+          <span className="font-medium">{message.text}</span>
         </div>
       )}
 
-      <div className="mt-6 grid gap-4">
+      <div className="mt-5 grid gap-3">
+        <div className="grid gap-3 md:grid-cols-2">
+          <select
+            value={classFilter}
+            onChange={(event) => {
+              setClassFilter(event.target.value);
+              setStudentId("");
+            }}
+            className="h-11 rounded-2xl border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none focus:border-violet-400"
+          >
+            <option value="">Todas as turmas</option>
+
+            {classes.map((classItem) => (
+              <option key={classItem.id} value={classItem.id}>
+                {classItem.name}
+              </option>
+            ))}
+          </select>
+
+          <div className="flex h-11 items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4 focus-within:border-violet-400">
+            <Search size={17} className="text-slate-500" />
+            <input
+              type="text"
+              value={studentSearch}
+              onChange={(event) => setStudentSearch(event.target.value)}
+              placeholder="Pesquisar aluno pelo nome..."
+              className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
+            />
+          </div>
+        </div>
+
         <select
           value={studentId}
-          onChange={(event) =>
-            setStudentId(event.target.value)
-          }
-          className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+          onChange={(event) => setStudentId(event.target.value)}
+          className="h-11 rounded-2xl border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none focus:border-violet-400"
         >
-          <option value="">
-            Selecione o aluno
-          </option>
+          <option value="">Selecione o aluno</option>
 
-          {students.map((student) => (
-            <option
-              key={student.id}
-              value={student.id}
-            >
+          {visibleStudents.map((student) => (
+            <option key={student.id} value={student.id}>
               {student.name}
             </option>
           ))}
@@ -129,44 +190,33 @@ export function NewSubmissionForm({
 
         <select
           value={activityId}
-          onChange={(event) =>
-            setActivityId(event.target.value)
-          }
-          className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+          onChange={(event) => setActivityId(event.target.value)}
+          className="h-11 rounded-2xl border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none focus:border-violet-400"
         >
-          <option value="">
-            Selecione a atividade
-          </option>
+          <option value="">Selecione a atividade</option>
 
           {activities.map((activity) => (
-            <option
-              key={activity.id}
-              value={activity.id}
-            >
+            <option key={activity.id} value={activity.id}>
               {activity.title}
             </option>
           ))}
         </select>
 
         <textarea
-          placeholder="Resposta do aluno..."
+          placeholder="Resposta do aluno... opcional"
           value={content}
-          onChange={(event) =>
-            setContent(event.target.value)
-          }
-          rows={5}
-          className="resize-none rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+          onChange={(event) => setContent(event.target.value)}
+          rows={3}
+          className="resize-none rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-violet-400"
         />
       </div>
 
       <button
         onClick={handleCreateSubmission}
         disabled={loading}
-        className="mt-5 rounded-2xl bg-violet-500 px-6 py-3 font-semibold transition hover:bg-violet-400 disabled:opacity-50"
+        className="mt-4 rounded-2xl bg-violet-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loading
-          ? "Enviando..."
-          : "Enviar atividade"}
+        {loading ? "Enviando..." : "Enviar atividade"}
       </button>
     </div>
   );
