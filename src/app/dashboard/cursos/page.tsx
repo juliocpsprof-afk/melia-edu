@@ -4,10 +4,14 @@ import { BookOpen, GraduationCap, Layers3 } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { CoursesManager } from "../../../components/CoursesManager";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type Course = {
   id: string;
   name: string;
   description: string | null;
+  status: string | null;
   curriculum_lessons: {
     id: string;
     title: string;
@@ -24,6 +28,7 @@ export default async function CursosPage() {
       id,
       name,
       description,
+      status,
       curriculum_lessons (
         id,
         title,
@@ -48,16 +53,21 @@ export default async function CursosPage() {
       id: String(course.id),
       name: String(course.name ?? "Curso sem nome"),
       description: course.description,
+      status: course.status ?? "Ativo",
       curriculum_lessons:
-        course.curriculum_lessons?.map((lesson) => ({
-          id: String(lesson.id),
-          title: String(lesson.title ?? "Aula sem título"),
-          content: String(lesson.content ?? ""),
-          notes: String(lesson.notes ?? ""),
-          lesson_order: lesson.lesson_order,
-        })) ?? [],
+        course.curriculum_lessons
+          ?.map((lesson) => ({
+            id: String(lesson.id),
+            title: String(lesson.title ?? "Aula sem título"),
+            content: String(lesson.content ?? ""),
+            notes: String(lesson.notes ?? ""),
+            lesson_order: lesson.lesson_order ?? 0,
+          }))
+          .sort((a, b) => Number(a.lesson_order ?? 0) - Number(b.lesson_order ?? 0)) ??
+        [],
     }));
 
+  const activeCourses = safeCourses.filter((course) => course.status !== "Arquivado");
   const totalLessons = safeCourses.reduce(
     (sum, course) => sum + course.curriculum_lessons.length,
     0
@@ -76,8 +86,8 @@ export default async function CursosPage() {
       <section className="p-6">
         <div className="mb-8 grid gap-5 md:grid-cols-3">
           <SummaryCard
-            title="Cursos cadastrados"
-            value={String(safeCourses.length)}
+            title="Cursos ativos"
+            value={String(activeCourses.length)}
             icon={<GraduationCap />}
           />
 
@@ -87,11 +97,7 @@ export default async function CursosPage() {
             icon={<BookOpen />}
           />
 
-          <SummaryCard
-            title="Base curricular"
-            value="Ativa"
-            icon={<Layers3 />}
-          />
+          <SummaryCard title="Base curricular" value="Ativa" icon={<Layers3 />} />
         </div>
 
         <CoursesManager courses={safeCourses} />
