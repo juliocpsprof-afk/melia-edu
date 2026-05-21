@@ -2,23 +2,26 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export function middleware(request: NextRequest) {
-  const session =
-    request.cookies.get("sb-access-token") ||
-    request.cookies.get(
-      "supabase-auth-token"
-    );
+  const pathname = request.nextUrl.pathname;
 
   const isDashboardRoute =
-    request.nextUrl.pathname.startsWith(
-      "/dashboard"
-    );
+    pathname.startsWith("/dashboard");
 
   const isLoginRoute =
-    request.nextUrl.pathname === "/login";
+    pathname.startsWith("/login");
+
+  const hasSupabaseAuth =
+    request.cookies
+      .getAll()
+      .some((cookie) =>
+        cookie.name.includes(
+          "supabase"
+        )
+      );
 
   if (
     isDashboardRoute &&
-    !session
+    !hasSupabaseAuth
   ) {
     return NextResponse.redirect(
       new URL(
@@ -30,7 +33,7 @@ export function middleware(request: NextRequest) {
 
   if (
     isLoginRoute &&
-    session
+    hasSupabaseAuth
   ) {
     return NextResponse.redirect(
       new URL(
