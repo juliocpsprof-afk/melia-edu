@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import toast from "react-hot-toast";
 import {
   Clipboard,
   Edit3,
@@ -10,7 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import toast from "react-hot-toast";
+
 import { supabase } from "../lib/supabase";
 
 type AttendanceItem = {
@@ -19,15 +20,19 @@ type AttendanceItem = {
   status: string;
   arrival_time: string | null;
   notes: string | null;
-  students: { name: string } | null;
-  classes: { name: string } | null;
-  lesson_diary: { content: string } | null;
+  students: {
+    name: string;
+  } | null;
+  classes: {
+    name: string;
+  } | null;
+  lesson_diary: {
+    content: string;
+  } | null;
 };
 
-type AttendanceStatus = "Presente" | "Falta" | "Atraso";
-
 type EditRecord = {
-  status: AttendanceStatus;
+  status: string;
   arrival_time: string;
   notes: string;
 };
@@ -37,121 +42,144 @@ export function AttendanceHistoryFilter({
 }: {
   attendance: AttendanceItem[];
 }) {
-  const [classFilter, setClassFilter] = useState("");
-  const [dateFilter, setDateFilter] = useState("");
   const [search, setSearch] = useState("");
-
   const [openGroup, setOpenGroup] = useState("");
   const [editingGroup, setEditingGroup] = useState("");
-  const [editRecords, setEditRecords] = useState<Record<string, EditRecord>>({});
-
-  const classes = Array.from(
-    new Set(attendance.map((item) => item.classes?.name).filter(Boolean))
+  const [editRecords, setEditRecords] = useState<Record<string, EditRecord>>(
+    {}
   );
 
-  const filteredAttendance = attendance.filter((item) => {
-    const matchesClass = classFilter ? item.classes?.name === classFilter : true;
-    const matchesDate = dateFilter ? item.date === dateFilter : true;
+  function normalizeText(value: string) {
+    return value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+  }
 
-    const text = `${item.students?.name ?? ""} ${item.lesson_diary?.content ?? ""}`.toLowerCase();
+  const filteredAttendance = useMemo(() => {
+    const normalizedSearch = normalizeText(search);
 
-    const matchesSearch = search ? text.includes(search.toLowerCase()) : true;
+    if (!normalizedSearch) return attendance;
 
-    return matchesClass && matchesDate && matchesSearch;
-  });
+    return attendance.filter((item) => {
+      const text = normalizeText(`
+        ${item.students?.name || ""}
+        ${item.classes?.name || ""}
+        ${item.lesson_diary?.content || ""}
+        ${item.status || ""}
+        ${item.notes || ""}
+      `);
 
-  const groupedCalls = useMemo(() => {
-    const groups: Record<string, AttendanceItem[]> = {};
+      return text.includes(normalizedSearch);
+    });
+  }, [attendance, search]);
+
+  const groups = useMemo(() => {
+    const grouped = new Map<string, AttendanceItem[]>();
 
     filteredAttendance.forEach((item) => {
-      const key = `${item.date}-${item.classes?.name}-${item.lesson_diary?.content}`;
+      const key = `${item.date}-${item.classes?.name || "Turma"}-${
+        item.lesson_diary?.content || "Aula"
+      }`;
 
-      if (!groups[key]) {
-        groups[key] = [];
+      if (!grouped.has(key)) {
+        grouped.set(key, []);
       }
 
-      groups[key].push(item);
+      grouped.get(key)?.push(item);
     });
 
-    return Object.entries(groups).map(([key, items]) => ({
+    return Array.from(grouped.entries()).map(([key, items]) => ({
       key,
-      date: items[0].date,
-      className: items[0].classes?.name ?? "Sem turma",
-      lessonContent: items[0].lesson_diary?.content ?? "Sem conteúdo vinculado",
       items,
+      date: items[0]?.date,
+      className: items[0]?.classes?.name || "Turma",
+      content: items[0]?.lesson_diary?.content || "Aula sem conteúdo",
+      present: items.filter((item) => item.status === "Presente").length,
+      absences: items.filter((item) => item.status === "Falta").length,
+      delays: items.filter((item) => item.status === "Atraso").length,
     }));
   }, [filteredAttendance]);
 
+  function copyGroupReport(items: AttendanceItem[]) {
+    const first = items[0];
+
+    const report = [
+      `📚 ${first?.classes?.name || "Turma"}`,
+      `📅 ${new Date(first?.date || "").toLocaleDateString("pt-BR")}`,
+      `📖 ${first?.lesson_diary?.content || "Aula sem conteúdo"}`,
+      "",
+      ...items.map((item) => {
+        const icon =
+          item.status === "Presente"
+            ? "✅"
+            : item.status === "Atraso"
+            ? "⚠️"
+            : "❌";
+
+        const time =
+          item.status === "Atraso" && item.arrival_time
+            ? ` (${item.arrival_time})`
+            : "";
+
+        const notes = item.notes ? ` — ${item.notes}` : "";
+
+        return `${icon} ${item.students?.name || "Aluno"} — ${
+          item.status
+        }${time}${notes}`;
+      }),
+    ].join("\n");
+
+    navigator.clipboard.writeText(report);
+    toast.success("Relatório copiado!");
+  }
+
   function startEditGroup(groupKey: string, items: AttendanceItem[]) {
-    const initialRecords: Record<string, EditRecord> = {};
+    const records: Record<string, EditRecord> = {};
 
     items.forEach((item) => {
-      initialRecords[item.id] = {
-        status: item.status as AttendanceStatus,
-        arrival_time: item.arrival_time ?? "",
-        notes: item.notes ?? "",
+      records[item.id] = {
+        status: item.status,
+        arrival_time: item.arrival_time || "",
+        notes: item.notes || "",
       };
     });
 
     setEditingGroup(groupKey);
     setOpenGroup(groupKey);
-    setEditRecords(initialRecords);
+    setEditRecords(records);
   }
 
-  function cancelEditGroup() {
+  function cancelEdit() {
     setEditingGroup("");
     setEditRecords({});
   }
 
   function updateEditRecord(
-    id: string,
+    attendanceId: string,
     field: keyof EditRecord,
     value: string
   ) {
     setEditRecords((current) => ({
       ...current,
-      [id]: {
-        ...current[id],
+      [attendanceId]: {
+        ...current[attendanceId],
         [field]: value,
       },
     }));
   }
 
-  async function saveOneRecord(id: string) {
-    const record = editRecords[id];
-
-    if (!record) return;
-
-    const { error } = await supabase
-      .from("attendance")
-      .update({
-        status: record.status,
-        arrival_time: record.status === "Atraso" ? record.arrival_time : "",
-        notes: record.notes,
-      })
-      .eq("id", id);
-
-    if (error) {
-      toast.error("Erro ao salvar registro.");
-      console.error(error);
-      return;
-    }
-
-    toast.success("Registro atualizado!");
-    setTimeout(() => window.location.reload(), 700);
-  }
-
-  async function saveWholeCall(items: AttendanceItem[]) {
+  async function saveEditGroup(items: AttendanceItem[]) {
     const updates = items.map((item) => {
       const record = editRecords[item.id];
 
       return supabase
         .from("attendance")
         .update({
-          status: record?.status ?? item.status,
-          arrival_time:
-            record?.status === "Atraso" ? record?.arrival_time ?? "" : "",
-          notes: record?.notes ?? item.notes ?? "",
+          status: record.status,
+          arrival_time: record.status === "Atraso" ? record.arrival_time : null,
+          notes: record.notes.trim() || null,
         })
         .eq("id", item.id);
     });
@@ -160,36 +188,16 @@ export function AttendanceHistoryFilter({
     const hasError = results.some((result) => result.error);
 
     if (hasError) {
-      toast.error("Erro ao salvar chamada completa.");
-      console.error(results);
+      toast.error("Erro ao editar chamada.");
       return;
     }
 
-    toast.success("Chamada completa atualizada!");
-    setTimeout(() => window.location.reload(), 700);
-  }
-
-  async function deleteOneRecord(id: string) {
-    const confirmed = confirm("Deseja excluir este registro de chamada?");
-
-    if (!confirmed) return;
-
-    const { error } = await supabase.from("attendance").delete().eq("id", id);
-
-    if (error) {
-      toast.error("Erro ao excluir registro.");
-      console.error(error);
-      return;
-    }
-
-    toast.success("Registro excluído!");
-    setTimeout(() => window.location.reload(), 700);
+    toast.success("Chamada editada com sucesso!");
+    window.location.reload();
   }
 
   async function deleteWholeCall(items: AttendanceItem[]) {
-    const confirmed = confirm(
-      "Deseja excluir a chamada inteira? Isso apagará todos os registros desta aula."
-    );
+    const confirmed = confirm("Deseja excluir esta chamada inteira?");
 
     if (!confirmed) return;
 
@@ -199,242 +207,138 @@ export function AttendanceHistoryFilter({
 
     if (error) {
       toast.error("Erro ao excluir chamada.");
-      console.error(error);
       return;
     }
 
-    toast.success("Chamada inteira excluída!");
-    setTimeout(() => window.location.reload(), 700);
-  }
-
-  async function copyReport(group: {
-    date: string;
-    className: string;
-    lessonContent: string;
-    items: AttendanceItem[];
-  }) {
-    const formattedDate = new Date(group.date).toLocaleDateString("pt-BR");
-
-    const lines = group.items.map((item) => {
-      const record = editRecords[item.id];
-
-      const status = record?.status ?? item.status;
-      const arrivalTime = record?.arrival_time ?? item.arrival_time;
-      const notes = record?.notes ?? item.notes;
-
-      const icon =
-        status === "Presente" ? "✅" : status === "Atraso" ? "⚠️" : "❌";
-
-      const time =
-        status === "Atraso" && arrivalTime ? ` (${arrivalTime})` : "";
-
-      const note = notes ? ` — Obs.: ${notes}` : "";
-
-      return `${icon} ${item.students?.name ?? "Aluno"} — ${status}${time}${note}`;
-    });
-
-    const report = `📚 Chamada - ${group.className}
-📅 ${formattedDate}
-📖 Aula: ${group.lessonContent}
-
-${lines.join("\n")}`;
-
-    await navigator.clipboard.writeText(report);
-    toast.success("Relatório copiado!");
+    toast.success("Chamada excluída!");
+    window.location.reload();
   }
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
-        <h2 className="text-2xl font-bold">Filtrar chamadas</h2>
-
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <select
-            value={classFilter}
-            onChange={(event) => setClassFilter(event.target.value)}
-            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
-          >
-            <option value="">Todas as turmas</option>
-
-            {classes.map((className) => (
-              <option key={className} value={className ?? ""}>
-                {className}
-              </option>
-            ))}
-          </select>
+      <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-5">
+        <div className="flex h-12 items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4">
+          <Search size={18} className="text-slate-500" />
 
           <input
-            type="date"
-            value={dateFilter}
-            onChange={(event) => setDateFilter(event.target.value)}
-            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Pesquisar por aluno, turma, aula, status ou observação..."
+            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
           />
-
-          <div className="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3">
-            <Search size={18} className="text-slate-400" />
-
-            <input
-              placeholder="Buscar aluno ou aula..."
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="w-full bg-transparent outline-none placeholder:text-slate-500"
-            />
-          </div>
         </div>
-
-        <p className="mt-4 text-sm text-slate-400">
-          {groupedCalls.length} chamada(s) encontrada(s).
-        </p>
       </div>
 
       <div className="space-y-4">
-        {groupedCalls.length === 0 ? (
+        {groups.length === 0 ? (
           <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 text-slate-400">
             Nenhuma chamada encontrada.
           </div>
         ) : (
-          groupedCalls.map((group) => {
-            const presentes = group.items.filter(
-              (item) => item.status === "Presente"
-            ).length;
-
-            const faltas = group.items.filter(
-              (item) => item.status === "Falta"
-            ).length;
-
-            const atrasos = group.items.filter(
-              (item) => item.status === "Atraso"
-            ).length;
-
+          groups.map((group) => {
             const isOpen = openGroup === group.key;
-            const isEditingGroup = editingGroup === group.key;
+            const isEditing = editingGroup === group.key;
 
             return (
               <div
                 key={group.key}
-                className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6"
+                className="rounded-3xl border border-slate-800 bg-slate-900/40 p-5"
               >
-                <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
-                    <h3 className="text-xl font-bold">
-                      Chamada — {group.className}
-                    </h3>
+                    <h2 className="text-xl font-bold text-white">
+                      {group.className}
+                    </h2>
 
-                    <p className="mt-2 text-slate-400">
-                      {new Date(group.date).toLocaleDateString("pt-BR")} •{" "}
-                      {group.lessonContent}
+                    <p className="mt-1 text-sm text-slate-400">
+                      {new Date(group.date).toLocaleDateString("pt-BR")} ·{" "}
+                      {group.content}
                     </p>
-
-                    <div className="mt-4 flex flex-wrap gap-2 text-sm">
-                      <Badge text={`✅ Presentes: ${presentes}`} />
-                      <Badge text={`❌ Faltas: ${faltas}`} />
-                      <Badge text={`⚠️ Atrasos: ${atrasos}`} />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      onClick={() => setOpenGroup(isOpen ? "" : group.key)}
-                      className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-slate-300 transition hover:bg-white/5"
-                    >
-                      <Eye size={16} />
-                      {isOpen ? "Ocultar" : "Ver detalhes"}
-                    </button>
-
-                    <button
-                      onClick={() => copyReport(group)}
-                      className="flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2 font-medium text-white transition hover:bg-violet-400"
-                    >
-                      <Clipboard size={16} />
-                      Copiar relatório
-                    </button>
-
-                    {isEditingGroup ? (
-                      <>
-                        <button
-                          onClick={() => saveWholeCall(group.items)}
-                          className="flex items-center gap-2 rounded-xl bg-emerald-500/10 px-4 py-2 text-emerald-300 transition hover:bg-emerald-500/20"
-                        >
-                          <Save size={16} />
-                          Salvar chamada
-                        </button>
-
-                        <button
-                          onClick={cancelEditGroup}
-                          className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-slate-300 transition hover:bg-white/5"
-                        >
-                          <X size={16} />
-                          Cancelar
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => startEditGroup(group.key, group.items)}
-                          className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-slate-300 transition hover:bg-white/5"
-                        >
-                          <Edit3 size={16} />
-                          Editar chamada
-                        </button>
-
-                        <button
-                          onClick={() => deleteWholeCall(group.items)}
-                          className="flex items-center gap-2 rounded-xl bg-red-500/10 px-4 py-2 text-red-300 transition hover:bg-red-500/20"
-                        >
-                          <Trash2 size={16} />
-                          Excluir chamada
-                        </button>
-                      </>
-                    )}
                   </div>
                 </div>
 
+                <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
+                  <button
+                    onClick={() => setOpenGroup(isOpen ? "" : group.key)}
+                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-500 text-sm font-semibold text-white transition hover:bg-blue-400"
+                  >
+                    <Eye size={16} />
+                    Ver detalhes
+                  </button>
+
+                  <button
+                    onClick={() => copyGroupReport(group.items)}
+                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-500 text-sm font-semibold text-white transition hover:bg-emerald-400"
+                  >
+                    <Clipboard size={16} />
+                    Copiar relatório
+                  </button>
+
+                  <button
+                    onClick={() => startEditGroup(group.key, group.items)}
+                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-yellow-500 text-sm font-semibold text-black transition hover:bg-yellow-400"
+                  >
+                    <Edit3 size={16} />
+                    Editar chamada
+                  </button>
+
+                  <button
+                    onClick={() => deleteWholeCall(group.items)}
+                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-red-500 text-sm font-semibold text-white transition hover:bg-red-400"
+                  >
+                    <Trash2 size={16} />
+                    Excluir chamada
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <StatusSummaryCard
+                    title="Presentes"
+                    value={group.present}
+                    className="border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                  />
+
+                  <StatusSummaryCard
+                    title="Faltas"
+                    value={group.absences}
+                    className="border-red-500/20 bg-red-500/10 text-red-300"
+                  />
+
+                  <StatusSummaryCard
+                    title="Atrasos"
+                    value={group.delays}
+                    className="border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
+                  />
+                </div>
+
                 {isOpen && (
-                  <div className="mt-6 space-y-3">
+                  <div className="mt-4 space-y-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
                     {group.items.map((item) => {
-                      const isEditing = isEditingGroup;
-                      const record = editRecords[item.id] ?? {
-                        status: item.status as AttendanceStatus,
-                        arrival_time: item.arrival_time ?? "",
-                        notes: item.notes ?? "",
-                      };
+                      const editRecord = editRecords[item.id];
 
                       return (
                         <div
                           key={item.id}
-                          className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4"
+                          className="rounded-2xl border border-slate-800 bg-slate-900/60 p-3"
                         >
-                          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                            <div>
-                              <p className="font-semibold">
-                                {item.students?.name ?? "Aluno"}
-                              </p>
-
-                              {!isEditing && (
-                                <p className="text-sm text-slate-400">
-                                  {item.status}
-                                  {item.arrival_time
-                                    ? ` • Chegada: ${item.arrival_time}`
-                                    : ""}
-                                </p>
-                              )}
-                            </div>
-
-                            {!isEditing && <StatusBadge status={item.status} />}
-                          </div>
-
                           {isEditing ? (
-                            <div className="mt-4 grid gap-3 md:grid-cols-3">
+                            <div className="grid gap-3 lg:grid-cols-[1fr_140px_120px_1fr] lg:items-center">
+                              <div>
+                                <p className="font-semibold text-white">
+                                  {item.students?.name || "Aluno"}
+                                </p>
+                              </div>
+
                               <select
-                                value={record.status}
+                                value={editRecord?.status || item.status}
                                 onChange={(event) =>
                                   updateEditRecord(
                                     item.id,
                                     "status",
-                                    event.target.value as AttendanceStatus
+                                    event.target.value
                                   )
                                 }
-                                className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+                                className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400"
                               >
                                 <option value="Presente">Presente</option>
                                 <option value="Falta">Falta</option>
@@ -443,8 +347,11 @@ ${lines.join("\n")}`;
 
                               <input
                                 type="time"
-                                value={record.arrival_time}
-                                disabled={record.status !== "Atraso"}
+                                value={editRecord?.arrival_time || ""}
+                                disabled={
+                                  (editRecord?.status || item.status) !==
+                                  "Atraso"
+                                }
                                 onChange={(event) =>
                                   updateEditRecord(
                                     item.id,
@@ -452,12 +359,11 @@ ${lines.join("\n")}`;
                                     event.target.value
                                   )
                                 }
-                                className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400 disabled:opacity-40"
+                                className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400 disabled:opacity-40"
                               />
 
                               <input
-                                placeholder="Observação"
-                                value={record.notes}
+                                value={editRecord?.notes || ""}
                                 onChange={(event) =>
                                   updateEditRecord(
                                     item.id,
@@ -465,37 +371,56 @@ ${lines.join("\n")}`;
                                     event.target.value
                                   )
                                 }
-                                className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+                                placeholder="Observação..."
+                                className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400"
                               />
-
-                              <div className="flex flex-wrap gap-3 md:col-span-3">
-                                <button
-                                  onClick={() => saveOneRecord(item.id)}
-                                  className="flex items-center gap-2 rounded-xl bg-emerald-500/10 px-4 py-2 text-emerald-300 transition hover:bg-emerald-500/20"
-                                >
-                                  <Save size={16} />
-                                  Salvar este aluno
-                                </button>
-
-                                <button
-                                  onClick={() => deleteOneRecord(item.id)}
-                                  className="flex items-center gap-2 rounded-xl bg-red-500/10 px-4 py-2 text-red-300 transition hover:bg-red-500/20"
-                                >
-                                  <Trash2 size={16} />
-                                  Excluir este aluno
-                                </button>
-                              </div>
                             </div>
                           ) : (
-                            item.notes && (
-                              <p className="mt-3 rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-sm text-violet-200">
-                                Obs.: {item.notes}
-                              </p>
-                            )
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="font-semibold text-white">
+                                  {item.students?.name || "Aluno"}
+                                </p>
+
+                                <p className="text-sm text-slate-400">
+                                  {item.status}
+                                  {item.status === "Atraso" &&
+                                  item.arrival_time
+                                    ? ` · ${item.arrival_time}`
+                                    : ""}
+                                </p>
+                              </div>
+
+                              {item.notes && (
+                                <p className="text-sm text-slate-400">
+                                  {item.notes}
+                                </p>
+                              )}
+                            </div>
                           )}
                         </div>
                       );
                     })}
+
+                    {isEditing && (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <button
+                          onClick={() => saveEditGroup(group.items)}
+                          className="flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-500 text-sm font-semibold text-white transition hover:bg-emerald-400"
+                        >
+                          <Save size={16} />
+                          Salvar edição
+                        </button>
+
+                        <button
+                          onClick={cancelEdit}
+                          className="flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+                        >
+                          <X size={16} />
+                          Cancelar
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -507,25 +432,19 @@ ${lines.join("\n")}`;
   );
 }
 
-function Badge({ text }: { text: string }) {
+function StatusSummaryCard({
+  title,
+  value,
+  className,
+}: {
+  title: string;
+  value: number;
+  className: string;
+}) {
   return (
-    <span className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1 text-slate-300">
-      {text}
-    </span>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const styles =
-    status === "Presente"
-      ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
-      : status === "Falta"
-        ? "bg-red-500/10 text-red-300 border-red-500/20"
-        : "bg-amber-500/10 text-amber-300 border-amber-500/20";
-
-  return (
-    <span className={`rounded-full border px-3 py-1 text-sm ${styles}`}>
-      {status}
-    </span>
+    <div className={`rounded-2xl border px-4 py-3 ${className}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide">{title}</p>
+      <p className="mt-1 text-2xl font-black">{value}</p>
+    </div>
   );
 }
