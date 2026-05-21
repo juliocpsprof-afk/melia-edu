@@ -45,7 +45,11 @@ const menuItems = [
   { label: "Alertas", href: "/dashboard/alertas", icon: Bell },
 ];
 
-export default function DashboardLayout({ children }: { children: ReactNode }) {
+export default function DashboardLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const router = useRouter();
   const pathname = usePathname();
 
@@ -68,6 +72,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
       setAllowed(true);
       setCheckingAuth(false);
+
       loadUnreadMessages();
     }
 
@@ -75,14 +80,16 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        setAllowed(false);
-        router.replace("/login");
-      } else {
-        setAllowed(true);
+    } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!session) {
+          setAllowed(false);
+          router.replace("/login");
+        } else {
+          setAllowed(true);
+        }
       }
-    });
+    );
 
     return () => {
       subscription.unsubscribe();
@@ -135,7 +142,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       <main className="flex min-h-screen items-center justify-center bg-[#020617] text-white">
         <div className="rounded-3xl border border-slate-800 bg-slate-900/70 px-8 py-6 text-center">
           <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-violet-400 border-t-transparent" />
-          <p className="font-semibold text-slate-200">Verificando acesso...</p>
+
+          <p className="font-semibold text-slate-200">
+            Verificando acesso...
+          </p>
         </div>
       </main>
     );
@@ -157,7 +167,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <h1 className="text-2xl font-bold">
               Melia <span className="text-violet-400">EDU</span>
             </h1>
-            <p className="text-sm text-slate-400">Painel do professor</p>
+
+            <p className="text-sm text-slate-400">
+              Painel do professor
+            </p>
           </div>
         </div>
 
@@ -166,7 +179,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
               Tema
             </p>
-            <p className="text-sm font-bold text-white">Visual</p>
+
+            <p className="text-sm font-bold text-white">
+              Visual
+            </p>
           </div>
 
           <ThemeToggle />
@@ -176,7 +192,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           {menuItems.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
-            const isMessages = item.href === "/dashboard/mensagens";
+            const isMessages =
+              item.href === "/dashboard/mensagens";
 
             return (
               <Link
@@ -190,14 +207,18 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               >
                 <div className="flex items-center gap-4">
                   <Icon size={22} />
-                  <span className="font-medium">{item.label}</span>
+
+                  <span className="font-medium">
+                    {item.label}
+                  </span>
                 </div>
 
-                {isMessages && unreadMessages > 0 && (
-                  <div className="flex h-7 min-w-[28px] items-center justify-center rounded-full bg-emerald-500 px-2 text-xs font-black text-white">
-                    {unreadMessages}
-                  </div>
-                )}
+                {isMessages &&
+                  unreadMessages > 0 && (
+                    <div className="flex h-7 min-w-[28px] items-center justify-center rounded-full bg-emerald-500 px-2 text-xs font-black text-white">
+                      {unreadMessages}
+                    </div>
+                  )}
               </Link>
             );
           })}
@@ -214,7 +235,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <section className="flex-1 bg-[#020617]">{children}</section>
+      <section className="flex-1 bg-[#020617]">
+        {children}
+      </section>
     </main>
   );
 }
