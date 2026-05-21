@@ -42,10 +42,10 @@ export function NewStudentForm({
   async function handleCreateStudent() {
     setMessage(null);
 
-    if (!name || !email || !phone || !classId || !courseId) {
+    if (!name.trim()) {
       setMessage({
         type: "error",
-        text: "Preencha nome, e-mail, telefone, turma e curso.",
+        text: "Digite pelo menos o nome do aluno. As outras informações podem ser preenchidas depois.",
       });
 
       return;
@@ -57,20 +57,20 @@ export function NewStudentForm({
     setLoading(true);
 
     const { error } = await supabase.from("students").insert({
-      name,
-      email,
-      phone,
+      name: name.trim(),
+      email: email.trim() || null,
+      phone: phone.trim() || null,
 
-      class_id: classId,
-      class_name: selectedClass?.name,
+      class_id: selectedClass?.id || null,
+      class_name: selectedClass?.name || null,
 
-      course_id: courseId,
-      course_name: selectedCourse?.name,
+      course_id: selectedCourse?.id || null,
+      course_name: selectedCourse?.name || null,
 
       average: average ? Number(average) : 0,
       attendance: attendance ? Number(attendance) : 0,
 
-      status,
+      status: status || "Regular",
     });
 
     setLoading(false);
@@ -80,7 +80,7 @@ export function NewStudentForm({
 
       setMessage({
         type: "error",
-        text: "Erro ao cadastrar aluno.",
+        text: `Erro ao cadastrar aluno: ${error.message}`,
       });
 
       return;
@@ -109,6 +109,10 @@ export function NewStudentForm({
     <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
       <h2 className="text-2xl font-bold">Cadastrar novo aluno</h2>
 
+      <p className="mt-1 text-sm text-slate-400">
+        Apenas o nome é obrigatório. Os demais dados podem ser concluídos depois.
+      </p>
+
       {message && (
         <div
           className={`mt-5 flex items-center gap-3 rounded-2xl border px-4 py-3 ${
@@ -136,17 +140,17 @@ export function NewStudentForm({
         />
 
         <input
-          placeholder="E-mail"
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          placeholder="Telefone opcional"
+          value={phone}
+          onChange={(event) => setPhone(event.target.value)}
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         />
 
         <input
-          placeholder="Telefone"
-          value={phone}
-          onChange={(event) => setPhone(event.target.value)}
+          placeholder="E-mail opcional"
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         />
 
@@ -155,7 +159,7 @@ export function NewStudentForm({
           onChange={(event) => setClassId(event.target.value)}
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         >
-          <option value="">Selecione a turma</option>
+          <option value="">Turma opcional</option>
 
           {classes.map((classItem) => (
             <option key={classItem.id} value={classItem.id}>
@@ -169,7 +173,7 @@ export function NewStudentForm({
           onChange={(event) => setCourseId(event.target.value)}
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         >
-          <option value="">Selecione o curso</option>
+          <option value="">Curso opcional</option>
 
           {courses.map((course) => (
             <option key={course.id} value={course.id}>
@@ -179,7 +183,7 @@ export function NewStudentForm({
         </select>
 
         <input
-          placeholder="Média"
+          placeholder="Média opcional"
           type="number"
           value={average}
           onChange={(event) => setAverage(event.target.value)}
@@ -187,7 +191,7 @@ export function NewStudentForm({
         />
 
         <input
-          placeholder="Frequência"
+          placeholder="Frequência opcional"
           type="number"
           value={attendance}
           onChange={(event) => setAttendance(event.target.value)}

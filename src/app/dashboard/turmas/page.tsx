@@ -1,6 +1,9 @@
 import { supabase } from "../../../lib/supabase";
 import { ClassesManager } from "../../../components/ClassesManager";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type Course = {
   id: string;
   name: string;
@@ -8,23 +11,20 @@ type Course = {
 
 type RawClassItem = {
   id: string;
-  name: string;
+  name: string | null;
   description: string | null;
   course_id: string | null;
   status: string | null;
-  courses:
-    | {
-        name?: string | null;
-      }
-    | {
-        name?: string | null;
-      }[]
-    | null;
   students:
     | {
         id?: string | null;
       }[]
     | null;
+};
+
+type RawClassCourse = {
+  class_id: string | null;
+  course_id: string | null;
 };
 
 type ClassItem = {
@@ -33,56 +33,75 @@ type ClassItem = {
   description: string | null;
   course_id: string | null;
   status: string | null;
-  courses: {
-    name: string;
-  } | null;
+  linked_courses: Course[];
   students: {
     id: string;
   }[];
 };
 
-function getCourseName(
-  courses: RawClassItem["courses"]
+function addCourseWithoutDuplicate(
+  currentCourses: Course[],
+  course: Course
 ) {
-  if (!courses) {
-    return "Sem curso";
+  const alreadyExists = currentCourses.some(
+    (item) => item.id === course.id
+  );
+
+  if (alreadyExists) {
+    return currentCourses;
   }
 
-  if (Array.isArray(courses)) {
-    return courses[0]?.name || "Sem curso";
-  }
-
-  return courses.name || "Sem curso";
+  return [...currentCourses, course];
 }
 
 export default async function TurmasPage() {
-  const { data: courses } = await supabase
+  const {
+    data: courses,
+    error: coursesError,
+  } = await supabase
     .from("courses")
     .select("id, name")
     .order("name", { ascending: true });
 
-  const { data: classes, error } = await supabase
+  const {
+    data: classes,
+    error: classesError,
+  } = await supabase
     .from("classes")
-    .select(`
+    .select(
+      `
       id,
       name,
       description,
       course_id,
       status,
-      courses (
-        name
-      ),
       students (
         id
       )
-    `)
+    `
+    )
     .order("created_at", { ascending: false });
+
+  const {
+    data: classCourses,
+    error: classCoursesError,
+  } = await supabase
+    .from("class_courses")
+    .select("class_id, course_id");
+
+  const error =
+    coursesError || classesError || classCoursesError;
 
   if (error) {
     return (
       <div className="p-6 text-white">
-        <h1 className="text-3xl font-bold">Erro ao carregar turmas</h1>
-        <p className="mt-2 text-red-300">{error.message}</p>
+        <h1 className="text-3xl font-bold">
+          Erro ao carregar turmas
+        </h1>
+
+        <p className="mt-2 text-red-300">
+          {error.message}
+        </p>
       </div>
     );
   }
@@ -93,31 +112,88 @@ export default async function TurmasPage() {
       name: String(course.name ?? "Curso sem nome"),
     })) ?? [];
 
+  const courseById = new Map(
+    safeCourses.map((course) => [course.id, course])
+  );
+
+  const linkedCoursesByClassId = new Map<
+    string,
+    Course[]
+  >();
+
+  ((classCourses as RawClassCourse[] | null) ?? []).forEach(
+    (link) => {
+      if (!link.class_id || !link.course_id) {
+        return;
+      }
+
+      const course = courseById.get(String(link.course_id));
+
+      if (!course) {
+        return;
+      }
+
+      const current =
+        linkedCoursesByClassId.get(String(link.class_id)) ??
+        [];
+
+      linkedCoursesByClassId.set(
+        String(link.class_id),
+        addCourseWithoutDuplicate(current, course)
+      );
+    }
+  );
+
   const rawClasses =
     (classes as unknown as RawClassItem[] | null) ?? [];
 
-  const safeClasses: ClassItem[] = rawClasses.map((classItem) => ({
-    id: String(classItem.id),
-    name: String(classItem.name ?? "Turma sem nome"),
-    description: classItem.description,
-    course_id: classItem.course_id,
-    status: classItem.status,
-    courses: {
-      name: getCourseName(classItem.courses),
-    },
-    students:
-      classItem.students?.map((student) => ({
-        id: String(student.id ?? ""),
-      })) ?? [],
-  }));
+  const safeClasses: ClassItem[] = rawClasses.map(
+    (classItem) => {
+      const classId = String(classItem.id);
+
+      let linkedCourses =
+        linkedCoursesByClassId.get(classId) ?? [];
+
+      if (classItem.course_id) {
+        const legacyCourse = courseById.get(
+          String(classItem.course_id)
+        );
+
+        if (legacyCourse) {
+          linkedCourses = addCourseWithoutDuplicate(
+            linkedCourses,
+            legacyCourse
+          );
+        }
+      }
+
+      return {
+        id: classId,
+        name: String(
+          classItem.name ?? "Turma sem nome"
+        ),
+        description: classItem.description,
+        course_id: classItem.course_id,
+        status: classItem.status ?? "Ativa",
+        linked_courses: linkedCourses,
+        students:
+          classItem.students?.map((student) => ({
+            id: String(student.id ?? ""),
+          })) ?? [],
+      };
+    }
+  );
 
   return (
     <>
       <header className="border-b border-slate-800 bg-slate-950/40 px-6 py-5">
-        <h1 className="text-3xl font-bold">Turmas</h1>
+        <h1 className="text-3xl font-bold">
+          Turmas
+        </h1>
 
         <p className="mt-1 text-slate-400">
-          Crie, edite, arquive e vincule turmas aos cursos.
+          Crie, edite, arquive e vincule turmas a
+          múltiplos cursos.
         </p>
       </header>
 
