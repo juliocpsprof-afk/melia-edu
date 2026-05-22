@@ -37,6 +37,105 @@ type EditRecord = {
   notes: string;
 };
 
+const motivationalMessages = [
+  "Cada presença é um passo a mais rumo ao seu primeiro grande resultado profissional.",
+  "Disciplina hoje, oportunidade amanhã.",
+  "Quem se prepara melhor chega mais confiante ao mercado de trabalho.",
+  "Aprender é construir o futuro com as próprias mãos.",
+  "A constância vence o talento quando o talento não é constante.",
+  "Seu esforço de hoje pode abrir portas que você ainda nem imagina.",
+  "Pontualidade, presença e atitude também são competências profissionais.",
+  "Quem se compromete cedo chega mais longe.",
+  "O jovem aprendiz que se dedica hoje se destaca amanhã.",
+  "Não é só uma aula: é treino para a vida profissional.",
+  "A melhor vaga começa com a melhor preparação.",
+  "Responsabilidade é uma habilidade que o mercado valoriza muito.",
+  "Você não precisa ser perfeito; precisa continuar evoluindo.",
+  "Cada aula fortalece sua postura para o mundo do trabalho.",
+  "O futuro profissional é construído nas pequenas escolhas diárias.",
+  "Quem participa mais, aprende mais. Quem aprende mais, cresce mais.",
+  "A oportunidade costuma encontrar quem está preparado.",
+  "Estudar também é investir em liberdade de escolha.",
+  "Seu comportamento em sala também comunica quem você será no trabalho.",
+  "Foco, respeito e compromisso abrem caminhos.",
+  "O mercado procura pessoas que aprendem, colaboram e persistem.",
+  "Hoje você treina. Amanhã você entrega resultado.",
+  "Pequenas melhorias todos os dias criam grandes mudanças.",
+  "A presença mostra compromisso; a participação mostra atitude.",
+  "Quem cuida do próprio aprendizado aumenta suas chances.",
+  "A caminhada profissional começa antes do primeiro emprego.",
+  "A melhor versão de você está sendo construída aos poucos.",
+  "Não subestime uma aula: ela pode mudar uma decisão no futuro.",
+  "Preparação é o que transforma chance em conquista.",
+  "Você está aprendendo mais do que conteúdo: está treinando postura profissional.",
+  "O hábito de cumprir compromissos vale muito no mercado.",
+  "Persistir também é uma competência.",
+  "A evolução aparece para quem continua tentando.",
+  "Aprender hoje é ganhar voz, escolha e oportunidade amanhã.",
+  "Quem leva a formação a sério chega mais forte à entrevista.",
+  "Seu futuro agradece a dedicação que você escolhe hoje.",
+];
+
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function getShortStudentName(name: string) {
+  const ignoredParticles = ["da", "de", "do", "das", "dos", "e"];
+
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((part) => !ignoredParticles.includes(part.toLowerCase()));
+
+  if (parts.length <= 3) {
+    return parts.join(" ");
+  }
+
+  return parts.slice(0, 3).join(" ");
+}
+
+function getMotivationalMessage(seed: string) {
+  const normalizedSeed = normalizeText(seed);
+
+  const hash = normalizedSeed.split("").reduce((total, char, index) => {
+    return total + char.charCodeAt(0) * (index + 1);
+  }, 0);
+
+  return motivationalMessages[hash % motivationalMessages.length];
+}
+
+function formatDate(date: string) {
+  if (!date) {
+    return "Sem data";
+  }
+
+  const parsedDate = new Date(`${date}T00:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Sem data";
+  }
+
+  return parsedDate.toLocaleDateString("pt-BR");
+}
+
+function getStatusIcon(status: string) {
+  if (status === "Presente") {
+    return "✅";
+  }
+
+  if (status === "Atraso") {
+    return "⚠️";
+  }
+
+  return "❌";
+}
+
 export function AttendanceHistoryFilter({
   attendance,
 }: {
@@ -48,14 +147,6 @@ export function AttendanceHistoryFilter({
   const [editRecords, setEditRecords] = useState<Record<string, EditRecord>>(
     {}
   );
-
-  function normalizeText(value: string) {
-    return value
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim();
-  }
 
   const filteredAttendance = useMemo(() => {
     const normalizedSearch = normalizeText(search);
@@ -105,34 +196,84 @@ export function AttendanceHistoryFilter({
   function copyGroupReport(items: AttendanceItem[]) {
     const first = items[0];
 
-    const report = [
-      `📚 ${first?.classes?.name || "Turma"}`,
-      `📅 ${new Date(first?.date || "").toLocaleDateString("pt-BR")}`,
-      `📖 ${first?.lesson_diary?.content || "Aula sem conteúdo"}`,
-      "",
-      ...items.map((item) => {
-        const icon =
-          item.status === "Presente"
-            ? "✅"
-            : item.status === "Atraso"
-            ? "⚠️"
-            : "❌";
+    if (!first) {
+      toast.error("Nenhum item encontrado para copiar.");
+      return;
+    }
 
-        const time =
-          item.status === "Atraso" && item.arrival_time
-            ? ` (${item.arrival_time})`
-            : "";
+    const className = first.classes?.name || "Turma";
+    const date = formatDate(first.date);
+    const content = first.lesson_diary?.content || "Aula sem conteúdo";
 
-        const notes = item.notes ? ` — ${item.notes}` : "";
+    const presentItems = items.filter((item) => item.status === "Presente");
+    const delayedItems = items.filter((item) => item.status === "Atraso");
+    const absentItems = items.filter((item) => item.status === "Falta");
 
-        return `${icon} ${item.students?.name || "Aluno"} — ${
-          item.status
-        }${time}${notes}`;
-      }),
-    ].join("\n");
+    function buildStudentLine(item: AttendanceItem) {
+      const shortName = getShortStudentName(item.students?.name || "Aluno");
+
+      const time =
+        item.status === "Atraso" && item.arrival_time
+          ? ` (${item.arrival_time})`
+          : "";
+
+      const notes = item.notes?.trim()
+        ? `\n   _Obs.: ${item.notes.trim()}_`
+        : "";
+
+      return `• ${shortName}${time}${notes}`;
+    }
+
+    const presentLines =
+      presentItems.length > 0
+        ? presentItems.map(buildStudentLine).join("\n")
+        : "• Nenhum registro";
+
+    const delayedLines =
+      delayedItems.length > 0
+        ? delayedItems.map(buildStudentLine).join("\n")
+        : "• Nenhum atraso";
+
+    const absentLines =
+      absentItems.length > 0
+        ? absentItems.map(buildStudentLine).join("\n")
+        : "• Nenhuma falta";
+
+    const motivationalMessage = getMotivationalMessage(
+      `${className}-${first.date}-${content}`
+    );
+
+    const report = `📌 *CHAMADA REGISTRADA*
+
+🏫 *Turma:* ${className}
+📅 *Data:* ${date}
+
+📚 *Aula / Conteúdo*
+${content}
+
+━━━━━━━━━━━━━━
+
+✅ *Presentes (${presentItems.length})*
+${presentLines}
+
+⚠️ *Atrasos (${delayedItems.length})*
+${delayedLines}
+
+❌ *Faltas (${absentItems.length})*
+${absentLines}
+
+━━━━━━━━━━━━━━
+
+📊 *Resumo*
+✅ Presentes: ${presentItems.length}
+⚠️ Atrasos: ${delayedItems.length}
+❌ Faltas: ${absentItems.length}
+
+💬 *Mensagem do dia*
+_${motivationalMessage}_`;
 
     navigator.clipboard.writeText(report);
-    toast.success("Relatório copiado!");
+    toast.success("Relatório copiado para WhatsApp!");
   }
 
   function startEditGroup(groupKey: string, items: AttendanceItem[]) {
@@ -251,8 +392,7 @@ export function AttendanceHistoryFilter({
                     </h2>
 
                     <p className="mt-1 text-sm text-slate-400">
-                      {new Date(group.date).toLocaleDateString("pt-BR")} ·{" "}
-                      {group.content}
+                      {formatDate(group.date)} · {group.content}
                     </p>
                   </div>
                 </div>
@@ -325,7 +465,9 @@ export function AttendanceHistoryFilter({
                             <div className="grid gap-3 lg:grid-cols-[1fr_140px_120px_1fr] lg:items-center">
                               <div>
                                 <p className="font-semibold text-white">
-                                  {item.students?.name || "Aluno"}
+                                  {getShortStudentName(
+                                    item.students?.name || "Aluno"
+                                  )}
                                 </p>
                               </div>
 
@@ -359,6 +501,7 @@ export function AttendanceHistoryFilter({
                                     event.target.value
                                   )
                                 }
+                                style={{ colorScheme: "dark" }}
                                 className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400 disabled:opacity-40"
                               />
 
@@ -379,11 +522,13 @@ export function AttendanceHistoryFilter({
                             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                               <div>
                                 <p className="font-semibold text-white">
-                                  {item.students?.name || "Aluno"}
+                                  {getShortStudentName(
+                                    item.students?.name || "Aluno"
+                                  )}
                                 </p>
 
                                 <p className="text-sm text-slate-400">
-                                  {item.status}
+                                  {getStatusIcon(item.status)} {item.status}
                                   {item.status === "Atraso" &&
                                   item.arrival_time
                                     ? ` · ${item.arrival_time}`

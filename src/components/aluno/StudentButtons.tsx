@@ -10,16 +10,32 @@ import {
   BookOpen,
   Video,
   Link2,
+  Clock3,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 type StudentSession = {
   studentId: string;
+  classId?: string;
+};
+
+type StudentProfile = {
+  id: string;
+  class_id: string | null;
 };
 
 type PortalButton = {
   id: string;
   button_order: number;
+  button_label: string;
+  button_url: string;
+  is_temporary?: boolean;
+};
+
+type TemporaryButton = {
+  id: string;
+  class_id: string;
+  class_name: string | null;
   button_label: string;
   button_url: string;
 };
@@ -32,7 +48,9 @@ const gradients = [
   "from-indigo-500 to-violet-600",
 ];
 
-function getButtonIcon(url: string, label: string) {
+function getButtonIcon(url: string, label: string, isTemporary?: boolean) {
+  if (isTemporary) return Clock3;
+
   const value = `${url} ${label}`.toLowerCase();
 
   if (value.includes("youtube")) return Video;
@@ -71,34 +89,96 @@ export default function StudentButtons() {
   const [buttons, setButtons] = useState<PortalButton[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function loadButtons() {
-      const savedSession = sessionStorage.getItem("melia_student_session");
-
-      if (!savedSession) {
-        router.push("/aluno");
-        return;
-      }
-
-      const parsedSession = JSON.parse(savedSession) as StudentSession;
-
-      const { data, error } = await supabase
-        .from("student_portal_buttons")
-        .select("id, button_order, button_label, button_url")
-        .eq("student_id", parsedSession.studentId)
-        .order("button_order", { ascending: true });
-
-      if (error) {
-        console.error("Erro ao carregar botões:", error.message);
-      }
-
-      setButtons((data || []) as PortalButton[]);
-      setLoading(false);
+  async function getStudentClassId(session: StudentSession) {
+    if (session.classId) {
+      return session.classId;
     }
 
+    const { data, error } = await supabase
+      .from("students")
+      .select("id, class_id")
+      .eq("id", session.studentId)
+      .single();
+
+    if (error) {
+      console.error("Erro ao buscar turma do aluno:", error.message);
+      return null;
+    }
+
+    return (data as StudentProfile | null)?.class_id ?? null;
+  }
+
+  async function loadButtons() {
+    const savedSession = sessionStorage.getItem("melia_student_session");
+
+    if (!savedSession) {
+      router.push("/aluno");
+      return;
+    }
+
+    const parsedSession = JSON.parse(savedSession) as StudentSession;
+
+    const classId = await getStudentClassId(parsedSession);
+
+    const { data: individualData, error: individualError } = await supabase
+      .from("student_portal_buttons")
+      .select("id, button_order, button_label, button_url")
+      .eq("student_id", parsedSession.studentId)
+      .order("button_order", { ascending: true });
+
+    if (individualError) {
+      console.error("Erro ao carregar botões:", individualError.message);
+    }
+
+    let temporaryButton: PortalButton | null = null;
+
+    if (classId) {
+      const { data: temporaryData, error: temporaryError } = await supabase
+        .from("class_temporary_buttons")
+        .select("id, class_id, class_name, button_label, button_url")
+        .eq("class_id", classId)
+        .maybeSingle();
+
+      if (temporaryError) {
+        console.error(
+          "Erro ao carregar botão temporário:",
+          temporaryError.message
+        );
+      }
+
+      const temporary = temporaryData as TemporaryButton | null;
+
+      if (temporary) {
+        temporaryButton = {
+          id: `temporary-${temporary.id}`,
+          button_order: 99,
+          button_label: temporary.button_label,
+          button_url: temporary.button_url,
+          is_temporary: true,
+        };
+      }
+    }
+
+    const individualButtons = ((individualData || []) as PortalButton[]).map(
+      (button) => ({
+        ...button,
+        is_temporary: false,
+      })
+    );
+
+    setButtons(
+      temporaryButton
+        ? [...individualButtons, temporaryButton]
+        : individualButtons
+    );
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
     loadButtons();
 
-    const channel = supabase
+    const individualChannel = supabase
       .channel("student_buttons_portal_realtime")
       .on(
         "postgres_changes",
@@ -111,8 +191,22 @@ export default function StudentButtons() {
       )
       .subscribe();
 
+    const temporaryChannel = supabase
+      .channel("student_temporary_buttons_portal_realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "class_temporary_buttons",
+        },
+        () => loadButtons()
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(individualChannel);
+      supabase.removeChannel(temporaryChannel);
     };
   }, [router]);
 
@@ -168,15 +262,19 @@ export default function StudentButtons() {
             </h2>
 
             <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-400">
-              Quando o professor cadastrar botões para você, eles aparecerão
-              nesta área e também no seu painel inicial.
+              Quando o professor cadastrar botões para você ou para sua turma,
+              eles aparecerão nesta área e também no seu painel inicial.
             </p>
           </div>
         ) : (
           <div className="grid gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-3">
             {buttons.map((button, index) => {
               const gradient = gradients[index % gradients.length];
-              const Icon = getButtonIcon(button.button_url, button.button_label);
+              const Icon = getButtonIcon(
+                button.button_url,
+                button.button_label,
+                button.is_temporary
+              );
 
               return (
                 <a
@@ -202,7 +300,9 @@ export default function StudentButtons() {
 
                       <div className="mt-7 sm:mt-8">
                         <p className="text-sm text-slate-300">
-                          Link rápido
+                          {button.is_temporary
+                            ? "Link temporário da turma"
+                            : "Link rápido"}
                         </p>
 
                         <h2 className="mt-2 break-words text-2xl font-black text-white sm:text-3xl">

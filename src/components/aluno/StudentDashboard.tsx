@@ -17,6 +17,7 @@ import {
   Link2,
   Shuffle,
   UserRound,
+  Clock3,
 } from "lucide-react";
 
 import StudentSidebar from "./StudentSidebar";
@@ -58,6 +59,13 @@ type PortalButton = {
   button_order: number | null;
   button_label: string | null;
   button_url: string | null;
+  is_temporary?: boolean;
+};
+
+type TemporaryButton = {
+  id: string;
+  button_label: string | null;
+  button_url: string | null;
 };
 
 type DrawResult = {
@@ -76,7 +84,10 @@ type DrawHistory = {
   draw_type: "student" | "teams";
   class_id: string | null;
   class_name: string | null;
+  activity_id: string | null;
+  activity_title: string | null;
   team_size: number | null;
+  status: string | null;
   created_at: string | null;
 };
 
@@ -84,6 +95,7 @@ type TeamSummary = {
   drawId: string;
   teamNumber: number;
   className: string;
+  activityTitle: string | null;
   createdAt: string | null;
   members: DrawResult[];
 };
@@ -92,6 +104,7 @@ type StudentDrawSummary = {
   drawId: string;
   studentName: string;
   className: string;
+  activityTitle: string | null;
   createdAt: string | null;
 };
 
@@ -186,7 +199,53 @@ export default function StudentDashboard() {
           console.error("Erro ao carregar botões:", buttonsError.message);
         }
 
-        setPortalButtons((buttonsData as PortalButton[] | null) ?? []);
+        const individualButtons = (
+          (buttonsData as PortalButton[] | null) ?? []
+        ).map((button) => ({
+          ...button,
+          is_temporary: false,
+        }));
+
+        let temporaryDashboardButton: PortalButton | null = null;
+
+        const { data: temporaryButtonData, error: temporaryButtonError } =
+          await supabase
+            .from("class_temporary_buttons")
+            .select("id, button_label, button_url")
+            .eq("class_id", parsedSession.classId)
+            .maybeSingle();
+
+        if (temporaryButtonError) {
+          console.error(
+            "Erro ao carregar botão temporário:",
+            temporaryButtonError.message
+          );
+        }
+
+        const temporaryButton = temporaryButtonData as TemporaryButton | null;
+
+        if (temporaryButton) {
+          temporaryDashboardButton = {
+            id: `temporary-${temporaryButton.id}`,
+            button_order: 99,
+            button_label: temporaryButton.button_label,
+            button_url: temporaryButton.button_url,
+            is_temporary: true,
+          };
+        }
+
+        const mergedButtons = temporaryDashboardButton
+          ? [...individualButtons, temporaryDashboardButton]
+          : individualButtons;
+
+        setPortalButtons(
+          mergedButtons.sort((a, b) => {
+            const orderA = a.button_order ?? 99;
+            const orderB = b.button_order ?? 99;
+
+            return orderA - orderB;
+          })
+        );
 
         const { data: resultData, error: resultError } = await supabase
           .from("interaction_draw_results")
@@ -205,6 +264,7 @@ export default function StudentDashboard() {
         }
 
         const studentResults = (resultData as DrawResult[] | null) ?? [];
+
         const drawIds = Array.from(
           new Set(studentResults.map((item) => item.draw_id).filter(Boolean))
         );
@@ -217,11 +277,17 @@ export default function StudentDashboard() {
 
         const { data: drawData, error: drawError } = await supabase
           .from("interaction_draws")
-          .select("id, draw_type, class_id, class_name, team_size, created_at")
-          .in("id", drawIds);
+          .select(
+            "id, draw_type, class_id, class_name, activity_id, activity_title, team_size, status, created_at"
+          )
+          .in("id", drawIds)
+          .eq("status", "active");
 
         if (drawError) {
-          console.error("Erro ao carregar dados dos sorteios:", drawError.message);
+          console.error(
+            "Erro ao carregar dados dos sorteios:",
+            drawError.message
+          );
           setTeamSummary(null);
           setStudentDrawSummary(null);
           return;
@@ -232,6 +298,7 @@ export default function StudentDashboard() {
 
         const latestTeamResult = studentResults.find((result) => {
           const draw = drawById.get(result.draw_id);
+
           return draw?.draw_type === "teams" && result.team_number !== null;
         });
 
@@ -258,6 +325,7 @@ export default function StudentDashboard() {
                 draw?.class_name ||
                 latestTeamResult.class_name ||
                 parsedSession.studentName,
+              activityTitle: draw?.activity_title || null,
               createdAt: draw?.created_at || latestTeamResult.created_at,
               members: (membersData as DrawResult[] | null) ?? [],
             });
@@ -268,6 +336,7 @@ export default function StudentDashboard() {
 
         const latestStudentDrawResult = studentResults.find((result) => {
           const draw = drawById.get(result.draw_id);
+
           return draw?.draw_type === "student";
         });
 
@@ -281,6 +350,7 @@ export default function StudentDashboard() {
               draw?.class_name ||
               latestStudentDrawResult.class_name ||
               "Turma não informada",
+            activityTitle: draw?.activity_title || null,
             createdAt: draw?.created_at || latestStudentDrawResult.created_at,
           });
         } else {
@@ -333,17 +403,20 @@ export default function StudentDashboard() {
 
         supabase
           .from("student_messages")
-          .select("id", { count: "exact" })
-          .eq("student_id", parsedSession.studentId),
+          .select("id", { count: "exact", head: true })
+          .eq("student_id", parsedSession.studentId)
+          .eq("sender", "teacher")
+          .eq("is_read", false),
 
         supabase
           .from("activities")
-          .select("id", { count: "exact" })
-          .eq("class_id", parsedSession.classId),
+          .select("id", { count: "exact", head: true })
+          .eq("class_id", parsedSession.classId)
+          .eq("archived", false),
 
         supabase
           .from("grades")
-          .select("id", { count: "exact" })
+          .select("id", { count: "exact", head: true })
           .eq("student_id", parsedSession.studentId),
       ]);
 
@@ -521,7 +594,7 @@ export default function StudentDashboard() {
               </h2>
 
               <p className="mt-3 text-sm text-slate-300">
-                mensagens registradas
+                mensagens não lidas
               </p>
             </div>
 
@@ -570,6 +643,18 @@ export default function StudentDashboard() {
                           )}`
                         : "Quando o professor sortear equipes, seu grupo aparecerá aqui."}
                     </p>
+
+                    {teamSummary?.activityTitle && (
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3">
+                        <p className="text-xs font-bold uppercase tracking-wide text-fuchsia-200">
+                          Atividade
+                        </p>
+
+                        <p className="mt-1 text-sm font-bold text-white">
+                          {teamSummary.activityTitle}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   <Link
@@ -627,8 +712,20 @@ export default function StudentDashboard() {
                         <p className="mt-1 text-xs text-slate-400">
                           {formatDateTime(studentDrawSummary.createdAt)}
                         </p>
+
+                        {studentDrawSummary.activityTitle && (
+                          <p className="mt-2 text-xs font-semibold text-cyan-100">
+                            Atividade: {studentDrawSummary.activityTitle}
+                          </p>
+                        )}
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {!teamSummary && !studentDrawSummary && (
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-300">
+                    Nenhum sorteio ativo encontrado para você no momento.
                   </div>
                 )}
               </div>
@@ -663,11 +760,12 @@ export default function StudentDashboard() {
 
               {portalButtons.length === 0 ? (
                 <div className="mt-6 rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-300">
-                  O professor ainda não cadastrou links para você.
+                  O professor ainda não cadastrou links para você ou para sua
+                  turma.
                 </div>
               ) : (
                 <div className="mt-6 grid gap-3">
-                  {portalButtons.slice(0, 3).map((button) => (
+                  {portalButtons.slice(0, 4).map((button) => (
                     <a
                       key={button.id}
                       href={getSafeUrl(button.button_url)}
@@ -676,9 +774,18 @@ export default function StudentDashboard() {
                       className="group flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-4 transition hover:border-cyan-400/40 hover:bg-cyan-500/10"
                     >
                       <div className="min-w-0">
-                        <p className="truncate font-black text-white">
-                          {button.button_label || "Link sem nome"}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate font-black text-white">
+                            {button.button_label || "Link sem nome"}
+                          </p>
+
+                          {button.is_temporary && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-cyan-200">
+                              <Clock3 className="h-3 w-3" />
+                              Temporário
+                            </span>
+                          )}
+                        </div>
 
                         <p className="mt-1 line-clamp-1 break-all text-xs text-slate-400">
                           {button.button_url || "Sem URL"}

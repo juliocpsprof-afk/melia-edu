@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { supabase } from "../../../lib/supabase";
 import { NewDiaryLessonForm } from "../../../components/NewDiaryLessonForm";
 import {
@@ -56,6 +59,7 @@ export default async function DiarioPage() {
     .from("lesson_diary")
     .select(`
       id,
+      class_id,
       lesson_date,
       content,
       notes,
@@ -68,11 +72,18 @@ export default async function DiarioPage() {
   if (error) {
     return (
       <div className="p-6 text-white">
-        <h1 className="text-3xl font-bold">Erro ao carregar diário</h1>
-        <p className="mt-2 text-red-300">{error.message}</p>
+        <h1 className="text-3xl font-bold">
+          Erro ao carregar diário
+        </h1>
+
+        <p className="mt-2 text-red-300">
+          {error.message}
+        </p>
       </div>
     );
   }
+
+  const safeClasses = (classes as ClassItem[]) ?? [];
 
   const safeLessons =
     (lessons as unknown as LessonDiary[] | null) ?? [];
@@ -80,21 +91,28 @@ export default async function DiarioPage() {
   return (
     <>
       <header className="border-b border-slate-800 bg-slate-950/40 px-6 py-5">
-        <h1 className="text-3xl font-bold">Diário de Classe</h1>
+        <h1 className="text-3xl font-bold">
+          Diário de Classe
+        </h1>
 
         <p className="mt-1 text-slate-400">
-          Registre, edite e acompanhe as aulas ministradas.
+          Registre, edite, pesquise e acompanhe as aulas ministradas.
         </p>
       </header>
 
       <section className="p-6">
         <NewDiaryLessonForm
-          classes={(classes as ClassItem[]) ?? []}
+          classes={safeClasses}
           courses={(courses as Course[]) ?? []}
-          curriculumLessons={(curriculumLessons as CurriculumLesson[]) ?? []}
+          curriculumLessons={
+            (curriculumLessons as CurriculumLesson[]) ?? []
+          }
         />
 
-        <DiaryLessonCards lessons={safeLessons} />
+        <DiaryLessonCards
+          lessons={safeLessons}
+          classes={safeClasses}
+        />
       </section>
     </>
   );
