@@ -4,7 +4,15 @@ import StudentRealtimeNotifications from "@/components/aluno/StudentRealtimeNoti
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Sparkles, Trophy, Users, Target } from "lucide-react";
+import {
+  ArrowRight,
+  History,
+  Shuffle,
+  Sparkles,
+  Trophy,
+  UserRound,
+  Users,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 type StudentSession = {
@@ -15,33 +23,68 @@ type StudentSession = {
 
 type DrawResult = {
   id: string;
-  draw_id: string | null;
-  student_id: string | null;
+  draw_id: string;
+  student_id: string;
   student_name: string;
   class_id: string | null;
   class_name: string | null;
   team_number: number | null;
   created_at: string | null;
- interaction_draws?:
-  | {
-      draw_type?: string | null;
-      team_size?: number | null;
-      created_at?: string | null;
-    }
-  | {
-      draw_type?: string | null;
-      team_size?: number | null;
-      created_at?: string | null;
-    }[]
-  | null;
 };
+
+type DrawHistory = {
+  id: string;
+  draw_type: "student" | "teams";
+  class_id: string | null;
+  class_name: string | null;
+  activity_id: string | null;
+  activity_title: string | null;
+  team_size: number | null;
+  status: string | null;
+  archived_at: string | null;
+  created_at: string | null;
+};
+
+type TeamSummary = {
+  draw: DrawHistory;
+  result: DrawResult;
+  members: DrawResult[];
+};
+
+type StudentDraw = {
+  draw: DrawHistory;
+  result: DrawResult;
+};
+
+function formatDateTime(value: string | null) {
+  if (!value) {
+    return "Data não informada";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Data não informada";
+  }
+
+  return date.toLocaleString("pt-BR");
+}
+
+function getActivityTitle(draw: DrawHistory) {
+  return draw.activity_title?.trim() || "Sem atividade vinculada";
+}
 
 export default function StudentDraws() {
   const router = useRouter();
 
   const [session, setSession] = useState<StudentSession | null>(null);
-  const [results, setResults] = useState<DrawResult[]>([]);
+  const [teamSummary, setTeamSummary] = useState<TeamSummary | null>(null);
+  const [studentDraws, setStudentDraws] = useState<StudentDraw[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const studentInitial = useMemo(() => {
+    return session?.studentName?.charAt(0).toUpperCase() || "A";
+  }, [session]);
 
   useEffect(() => {
     async function loadDraws() {
@@ -53,82 +96,139 @@ export default function StudentDraws() {
       }
 
       const parsedSession = JSON.parse(savedSession) as StudentSession;
+
       setSession(parsedSession);
+      setLoading(true);
 
-      const { data, error } = await supabase
+      const { data: resultData, error: resultError } = await supabase
         .from("interaction_draw_results")
-        .select(`
-          id,
-          draw_id,
-          student_id,
-          student_name,
-          class_id,
-          class_name,
-          team_number,
-          created_at,
-          interaction_draws (
-            draw_type,
-            team_size,
-            created_at
-          )
-        `)
+        .select(
+          "id, draw_id, student_id, student_name, class_id, class_name, team_number, created_at"
+        )
         .eq("student_id", parsedSession.studentId)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(50);
 
-      if (error) {
-        console.error("Erro ao carregar sorteios:", error.message);
+      if (resultError) {
+        console.error("Erro ao carregar resultados dos sorteios:", resultError.message);
+        setTeamSummary(null);
+        setStudentDraws([]);
+        setLoading(false);
+        return;
       }
 
-      setResults((data || []) as DrawResult[]);
+      const results = (resultData as DrawResult[] | null) ?? [];
+
+      const drawIds = Array.from(
+        new Set(results.map((item) => item.draw_id).filter(Boolean))
+      );
+
+      if (drawIds.length === 0) {
+        setTeamSummary(null);
+        setStudentDraws([]);
+        setLoading(false);
+        return;
+      }
+
+      const { data: drawData, error: drawError } = await supabase
+        .from("interaction_draws")
+        .select(
+          "id, draw_type, class_id, class_name, activity_id, activity_title, team_size, status, archived_at, created_at"
+        )
+        .in("id", drawIds)
+        .eq("status", "active");
+
+      if (drawError) {
+        console.error("Erro ao carregar dados dos sorteios:", drawError.message);
+        setTeamSummary(null);
+        setStudentDraws([]);
+        setLoading(false);
+        return;
+      }
+
+      const activeDraws = (drawData as DrawHistory[] | null) ?? [];
+      const activeDrawById = new Map(activeDraws.map((draw) => [draw.id, draw]));
+
+      const activeResults = results.filter((result) =>
+        activeDrawById.has(result.draw_id)
+      );
+
+      const latestTeamResult = activeResults.find((result) => {
+        const draw = activeDrawById.get(result.draw_id);
+
+        return draw?.draw_type === "teams" && result.team_number !== null;
+      });
+
+      if (latestTeamResult && latestTeamResult.team_number !== null) {
+        const { data: membersData, error: membersError } = await supabase
+          .from("interaction_draw_results")
+          .select(
+            "id, draw_id, student_id, student_name, class_id, class_name, team_number, created_at"
+          )
+          .eq("draw_id", latestTeamResult.draw_id)
+          .eq("team_number", latestTeamResult.team_number)
+          .order("student_name", { ascending: true });
+
+        const draw = activeDrawById.get(latestTeamResult.draw_id);
+
+        if (!membersError && draw) {
+          setTeamSummary({
+            draw,
+            result: latestTeamResult,
+            members: (membersData as DrawResult[] | null) ?? [],
+          });
+        } else {
+          console.error("Erro ao carregar integrantes da equipe:", membersError?.message);
+          setTeamSummary(null);
+        }
+      } else {
+        setTeamSummary(null);
+      }
+
+      const individualDraws = activeResults
+        .filter((result) => {
+          const draw = activeDrawById.get(result.draw_id);
+
+          return draw?.draw_type === "student";
+        })
+        .map((result) => ({
+          result,
+          draw: activeDrawById.get(result.draw_id),
+        }))
+        .filter((item): item is StudentDraw => Boolean(item.draw));
+
+      setStudentDraws(individualDraws);
       setLoading(false);
     }
 
     loadDraws();
-  }, [router]);
-
-  useEffect(() => {
-    if (!session?.studentId) return;
 
     const channel = supabase
-      .channel(`student_draws_${session.studentId}`)
+      .channel("student_draws_portal_realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "interaction_draws",
+        },
+        () => loadDraws()
+      )
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "interaction_draw_results",
-          filter: `student_id=eq.${session.studentId}`,
         },
-        (payload) => {
-          const newResult = payload.new as DrawResult;
-
-          setResults((current) => {
-            const exists = current.some((item) => item.id === newResult.id);
-
-            if (exists) {
-              return current.map((item) =>
-                item.id === newResult.id ? newResult : item
-              );
-            }
-
-            return [newResult, ...current];
-          });
-        }
+        () => loadDraws()
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [session?.studentId]);
-
-  const latestTeam = useMemo(() => {
-    return results.find((item) => item.team_number !== null);
-  }, [results]);
-
-  const individualDraws = useMemo(() => {
-    return results.filter((item) => item.team_number === null);
-  }, [results]);
+  }, [router]);
 
   if (loading) {
     return (
@@ -145,155 +245,256 @@ export default function StudentDraws() {
           <div className="min-w-0">
             <Link
               href="/aluno/dashboard"
-              className="mb-2 inline-flex text-sm text-cyan-300 hover:text-cyan-200"
+              className="mb-2 inline-flex text-sm text-fuchsia-300 transition hover:text-fuchsia-200"
             >
               ← Voltar ao painel
             </Link>
 
             <h1 className="text-2xl font-black sm:text-3xl">
-              Sorteios e Equipes
+              Sorteios e equipes
             </h1>
 
             <p className="mt-1 max-w-md text-sm text-slate-400">
-              Veja seus sorteios, equipes e participações em tempo real.
+              Veja sua equipe atual, os integrantes do grupo e a atividade para
+              a qual a equipe foi designada.
             </p>
           </div>
 
           <div className="shrink-0 rounded-[28px] border border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-500/10 to-purple-500/10 p-4 sm:p-5">
-            <p className="text-xs text-fuchsia-300">Participações</p>
+            <p className="text-xs text-fuchsia-300">Aluno</p>
 
             <h2 className="mt-2 text-3xl font-black text-white sm:text-4xl">
-              {results.length}
+              {studentInitial}
             </h2>
           </div>
         </div>
       </header>
 
       <section className="mx-auto max-w-6xl px-4 py-6 sm:px-5 sm:py-8">
-        <div className="mb-6 grid gap-4 sm:gap-6 lg:grid-cols-3">
-          <div className="rounded-[28px] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 p-5 shadow-2xl shadow-cyan-500/10 sm:rounded-[32px] sm:p-6 lg:col-span-2">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-cyan-300">
-                  Minha equipe atual
-                </p>
+        <div className="relative overflow-hidden rounded-[32px] border border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-500/10 via-purple-500/10 to-cyan-500/10 p-6 shadow-2xl shadow-fuchsia-500/10 sm:p-8">
+          <div className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-fuchsia-500/20 blur-3xl" />
+          <div className="absolute -bottom-24 left-10 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
 
-                <h2 className="mt-3 break-words text-4xl font-black text-white sm:text-5xl">
-                  {latestTeam?.team_number
-                    ? `Equipe ${latestTeam.team_number}`
-                    : "Sem equipe"}
+          <div className="relative z-10">
+            <div className="inline-flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-2 text-sm font-bold text-fuchsia-200">
+              <Sparkles className="h-4 w-4" />
+              Minha equipe atual
+            </div>
+
+            {teamSummary ? (
+              <>
+                <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <h2 className="text-4xl font-black text-white sm:text-5xl">
+                      Equipe {teamSummary.result.team_number}
+                    </h2>
+
+                    <p className="mt-3 text-sm text-slate-300">
+                      {teamSummary.draw.class_name || "Turma não informada"} •{" "}
+                      {formatDateTime(teamSummary.draw.created_at)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/10 px-5 py-4">
+                    <p className="text-xs text-fuchsia-200">Integrantes</p>
+
+                    <p className="mt-1 text-3xl font-black text-white">
+                      {teamSummary.members.length}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-[28px] border border-white/10 bg-slate-950/60 p-5">
+                  <p className="text-xs font-bold uppercase tracking-wide text-fuchsia-200">
+                    Atividade designada
+                  </p>
+
+                  <p className="mt-2 text-2xl font-black text-white">
+                    {getActivityTitle(teamSummary.draw)}
+                  </p>
+
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    Essa é a atividade relacionada ao sorteio desta equipe. Se o
+                    professor arquivar ou excluir o sorteio, ele sairá desta
+                    tela automaticamente.
+                  </p>
+                </div>
+
+                <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {teamSummary.members.map((member) => {
+                    const isMe = member.student_id === session?.studentId;
+
+                    return (
+                      <div
+                        key={member.id}
+                        className={`flex items-center gap-3 rounded-[24px] border p-4 ${
+                          isMe
+                            ? "border-fuchsia-400/40 bg-fuchsia-500/15"
+                            : "border-white/10 bg-slate-950/60"
+                        }`}
+                      >
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[20px] bg-white/10 text-lg font-black text-white">
+                          {member.student_name.charAt(0)}
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="truncate font-black text-white">
+                            {member.student_name}
+                          </p>
+
+                          <p className="mt-1 text-xs text-slate-400">
+                            {isMe ? "Você" : member.class_name || "Colega"}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="mt-7 rounded-[28px] border border-white/10 bg-slate-950/60 p-6 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[24px] bg-fuchsia-500/10 text-fuchsia-300">
+                  <Users className="h-8 w-8" />
+                </div>
+
+                <h2 className="mt-5 text-2xl font-black text-white">
+                  Nenhuma equipe ativa encontrada
                 </h2>
 
-                <p className="mt-4 max-w-xl text-sm text-slate-300 sm:text-base">
-                  Quando o professor fizer um sorteio de equipes, sua equipe
-                  aparecerá aqui automaticamente.
+                <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-400">
+                  Quando o professor fizer um sorteio de equipes ativo, o seu
+                  grupo aparecerá aqui automaticamente.
                 </p>
               </div>
-
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[24px] bg-cyan-500/20 sm:h-16 sm:w-16 sm:rounded-[28px]">
-                <Users className="h-7 w-7 text-cyan-300 sm:h-8 sm:w-8" />
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-[28px] border border-yellow-500/20 bg-gradient-to-br from-yellow-500/10 to-orange-500/10 p-5 shadow-2xl shadow-yellow-500/10 sm:rounded-[32px] sm:p-6">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm text-yellow-300">
-                  Sorteios individuais
-                </p>
-
-                <h2 className="mt-2 text-4xl font-black text-white sm:text-5xl">
-                  {individualDraws.length}
-                </h2>
-              </div>
-
-              <Target className="h-10 w-10 shrink-0 text-yellow-300 sm:h-12 sm:w-12" />
-            </div>
+            )}
           </div>
         </div>
 
-        {results.length === 0 ? (
-          <div className="rounded-[28px] border border-slate-800 bg-slate-900/70 p-8 text-center text-slate-300 sm:rounded-[32px] sm:p-10">
-            Nenhum sorteio apareceu para você ainda.
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
-            {results.map((result) => {
-              const isTeam = result.team_number !== null;
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-[32px] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 p-6">
+            <div className="flex items-center gap-3">
+              <Shuffle className="h-7 w-7 text-cyan-300" />
 
-              return (
-                <div
-                  key={result.id}
-                  className={`group rounded-[28px] border p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl sm:rounded-[32px] sm:p-6 ${
-                    isTeam
-                      ? "border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 hover:shadow-cyan-500/10"
-                      : "border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-500/10 to-purple-500/10 hover:shadow-fuchsia-500/10"
-                  }`}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div
-                        className={`inline-flex rounded-2xl px-3 py-2 text-xs font-semibold ${
-                          isTeam
-                            ? "bg-cyan-500/20 text-cyan-300"
-                            : "bg-fuchsia-500/20 text-fuchsia-300"
-                        }`}
-                      >
-                        {isTeam ? "Sorteio de equipe" : "Sorteio individual"}
+              <div>
+                <h2 className="text-2xl font-black text-white">
+                  Sorteios individuais
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-400">
+                  Registros ativos em que seu nome foi sorteado.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {studentDraws.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-300">
+                  Você ainda não apareceu em sorteios individuais ativos.
+                </div>
+              ) : (
+                studentDraws.map((item) => (
+                  <div
+                    key={`${item.draw.id}-${item.result.id}`}
+                    className="rounded-2xl border border-white/10 bg-slate-950/60 p-4"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-300">
+                        <UserRound className="h-6 w-6" />
                       </div>
 
-                      <h2 className="mt-4 break-words text-xl font-black text-white sm:text-2xl">
-                        {isTeam
-                          ? `Você está na Equipe ${result.team_number}`
-                          : "Você participou de um sorteio"}
-                      </h2>
+                      <div className="min-w-0">
+                        <p className="font-black text-white">
+                          {item.result.student_name}
+                        </p>
+
+                        <p className="mt-1 text-xs text-slate-400">
+                          {item.draw.class_name || "Turma não informada"} •{" "}
+                          {formatDateTime(item.draw.created_at)}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-3xl bg-slate-950">
-                      {isTeam ? (
-                        <Trophy className="h-6 w-6 text-cyan-300" />
-                      ) : (
-                        <Sparkles className="h-6 w-6 text-fuchsia-300" />
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-6 rounded-3xl border border-slate-800 bg-slate-950 p-4 sm:p-5">
-                    <p className="break-words text-sm text-slate-300">
-                      Aluno:{" "}
-                      <span className="font-semibold text-white">
-                        {result.student_name}
-                      </span>
-                    </p>
-
-                    <p className="mt-2 break-words text-sm text-slate-300">
-                      Turma:{" "}
-                      <span className="font-semibold text-white">
-                        {result.class_name || "Não informada"}
-                      </span>
-                    </p>
-
-                    {isTeam && (
-                      <p className="mt-2 text-sm text-slate-300">
-                        Número da equipe:{" "}
-                        <span className="font-semibold text-cyan-300">
-                          {result.team_number}
-                        </span>
+                    <div className="mt-4 rounded-2xl border border-cyan-500/10 bg-cyan-500/10 p-3">
+                      <p className="text-xs font-bold uppercase tracking-wide text-cyan-200">
+                        Atividade
                       </p>
-                    )}
-                  </div>
 
-                  <div className="mt-5 text-sm text-slate-400">
-                    {result.created_at
-                      ? new Date(result.created_at).toLocaleString("pt-BR")
-                      : "Sem data"}
+                      <p className="mt-1 font-black text-white">
+                        {getActivityTitle(item.draw)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                ))
+              )}
+            </div>
           </div>
-        )}
+
+          <div className="rounded-[32px] border border-yellow-500/20 bg-gradient-to-br from-yellow-500/10 to-orange-500/10 p-6">
+            <div className="flex items-center gap-3">
+              <History className="h-7 w-7 text-yellow-300" />
+
+              <div>
+                <h2 className="text-2xl font-black text-white">
+                  Como usar essa área
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-400">
+                  Suas interações ficam organizadas aqui.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                <div className="flex items-center gap-3">
+                  <Trophy className="h-5 w-5 text-yellow-300" />
+
+                  <p className="font-bold text-white">
+                    Trabalhos em equipe
+                  </p>
+                </div>
+
+                <p className="mt-2 text-sm leading-6 text-slate-400">
+                  Use a equipe exibida aqui para saber com quem você deve
+                  realizar atividades em grupo e qual atividade foi relacionada
+                  pelo professor.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                <div className="flex items-center gap-3">
+                  <Users className="h-5 w-5 text-fuchsia-300" />
+
+                  <p className="font-bold text-white">
+                    Sorteios ativos
+                  </p>
+                </div>
+
+                <p className="mt-2 text-sm leading-6 text-slate-400">
+                  Sorteios arquivados ou excluídos pelo professor não aparecem
+                  mais no seu painel, mantendo esta tela sempre limpa e atual.
+                </p>
+              </div>
+
+              <Link
+                href="/aluno/botoes"
+                className="group flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:bg-white/10"
+              >
+                <div>
+                  <p className="font-bold text-white">
+                    Ver acessos rápidos
+                  </p>
+
+                  <p className="mt-1 text-sm text-slate-400">
+                    Links enviados pelo professor.
+                  </p>
+                </div>
+
+                <ArrowRight className="h-5 w-5 text-white transition group-hover:translate-x-1" />
+              </Link>
+            </div>
+          </div>
+        </div>
       </section>
 
       <StudentRealtimeNotifications />

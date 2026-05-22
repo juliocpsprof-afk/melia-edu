@@ -1,12 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import toast from "react-hot-toast";
 import {
   AlertTriangle,
+  CheckCircle,
   CheckCircle2,
+  ChevronDown,
   Clipboard,
   Save,
+  Search,
   XCircle,
 } from "lucide-react";
 
@@ -34,10 +36,7 @@ type Student = {
   class_id: string;
 };
 
-type AttendanceStatus =
-  | "Presente"
-  | "Falta"
-  | "Atraso";
+type AttendanceStatus = "Presente" | "Falta" | "Atraso";
 
 type AttendanceRecord = {
   status: AttendanceStatus;
@@ -45,8 +44,22 @@ type AttendanceRecord = {
   notes: string;
 };
 
+type Message = {
+  type: "success" | "error";
+  text: string;
+};
+
+type AttendanceRow = {
+  status: string | null;
+};
+
 function getTodayDate() {
-  return new Date().toISOString().split("T")[0];
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 function formatDateToBrazilian(date: string) {
@@ -54,23 +67,49 @@ function formatDateToBrazilian(date: string) {
     return "";
   }
 
-  return new Date(`${date}T00:00:00`).toLocaleDateString(
-    "pt-BR"
-  );
+  return new Date(`${date}T00:00:00`).toLocaleDateString("pt-BR");
 }
 
 function getErrorMessage(error: unknown) {
-  if (
-    error &&
-    typeof error === "object" &&
-    "message" in error
-  ) {
-    return String(
-      (error as { message?: unknown }).message
-    );
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message?: unknown }).message);
   }
 
   return "Não foi possível concluir a operação.";
+}
+
+function normalizeText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function getShortStudentName(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+
+  if (parts.length <= 3) {
+    return name;
+  }
+
+  const ignoredParticles = ["da", "de", "do", "das", "dos", "e"];
+
+  const filteredParts = parts.filter(
+    (part) => !ignoredParticles.includes(part.toLowerCase())
+  );
+
+  if (filteredParts.length <= 3) {
+    return filteredParts.join(" ");
+  }
+
+  return filteredParts.slice(0, 3).join(" ");
+}
+
+function getLessonLabel(lesson: Lesson) {
+  return `${lesson.course_name} — ${
+    lesson.lesson_order > 0 ? `Aula ${lesson.lesson_order}: ` : ""
+  }${lesson.title}`;
 }
 
 export function AttendanceSmartPanel({
@@ -82,71 +121,62 @@ export function AttendanceSmartPanel({
   lessons: Lesson[];
   students: Student[];
 }) {
-  const [selectedClassId, setSelectedClassId] =
-    useState("");
+  const [selectedClassId, setSelectedClassId] = useState("");
+  const [selectedLessonId, setSelectedLessonId] = useState("");
 
-  const [selectedLessonId, setSelectedLessonId] =
-    useState("");
-
-  const [attendanceDate, setAttendanceDate] =
-    useState(getTodayDate);
-
-  const [teacherName, setTeacherName] =
-    useState("Professor");
+  const [attendanceDate, setAttendanceDate] = useState(getTodayDate);
+  const [teacherName, setTeacherName] = useState("Professor");
 
   const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<Message | null>(null);
 
-  const [records, setRecords] = useState<
-    Record<string, AttendanceRecord>
-  >({});
+  const [lessonMenuOpen, setLessonMenuOpen] = useState(false);
+  const [lessonSearch, setLessonSearch] = useState("");
 
-  const selectedClass = classes.find(
-    (item) => item.id === selectedClassId
-  );
+  const [records, setRecords] = useState<Record<string, AttendanceRecord>>({});
+
+  const selectedClass = classes.find((item) => item.id === selectedClassId);
 
   const selectedLesson = lessons.find(
     (lesson) =>
-      lesson.id === selectedLessonId &&
-      lesson.class_id === selectedClassId
+      lesson.id === selectedLessonId && lesson.class_id === selectedClassId
   );
 
   const classLessons = useMemo(() => {
     return lessons
-      .filter(
-        (lesson) =>
-          lesson.class_id === selectedClassId
-      )
+      .filter((lesson) => lesson.class_id === selectedClassId)
       .sort((a, b) => {
-        const courseCompare =
-          a.course_name.localeCompare(
-            b.course_name,
-            "pt-BR"
-          );
+        const courseCompare = a.course_name.localeCompare(
+          b.course_name,
+          "pt-BR"
+        );
 
         if (courseCompare !== 0) {
           return courseCompare;
         }
 
-        if (
-          a.lesson_order !== b.lesson_order
-        ) {
-          return (
-            a.lesson_order - b.lesson_order
-          );
+        if (a.lesson_order !== b.lesson_order) {
+          return a.lesson_order - b.lesson_order;
         }
 
-        return a.title.localeCompare(
-          b.title,
-          "pt-BR"
-        );
+        return a.title.localeCompare(b.title, "pt-BR");
       });
   }, [lessons, selectedClassId]);
 
-  const classStudents = useMemo(() => {
-    return students.filter(
-      (student) =>
-        student.class_id === selectedClassId
+  const filteredClassLessons = useMemo(() => {
+    const search = normalizeText(lessonSearch);
+
+    if (!search) {
+      return classLessons;
+    }
+
+    return classLessons.filter((lesson) =>
+      normalizeText(getLessonLabel(lesson)).includes(search)
     );
+  }, [classLessons, lessonSearch]);
+
+  const classStudents = useMemo(() => {
+    return students.filter((student) => student.class_id === selectedClassId);
   }, [students, selectedClassId]);
 
   function updateRecord(
@@ -158,29 +188,16 @@ export function AttendanceSmartPanel({
       ...current,
 
       [studentId]: {
-        status:
-          current[studentId]?.status ??
-          "Presente",
-
-        arrival_time:
-          current[studentId]?.arrival_time ??
-          "",
-
-        notes:
-          current[studentId]?.notes ?? "",
-
+        status: current[studentId]?.status ?? "Presente",
+        arrival_time: current[studentId]?.arrival_time ?? "",
+        notes: current[studentId]?.notes ?? "",
         [field]: value,
       },
     }));
   }
 
-  function setAllStatus(
-    status: AttendanceStatus
-  ) {
-    const updated: Record<
-      string,
-      AttendanceRecord
-    > = {};
+  function setAllStatus(status: AttendanceStatus) {
+    const updated: Record<string, AttendanceRecord> = {};
 
     classStudents.forEach((student) => {
       updated[student.id] = {
@@ -194,29 +211,24 @@ export function AttendanceSmartPanel({
   }
 
   async function getOrCreateLessonDiaryId() {
-    if (
-      !selectedClassId ||
-      !selectedLesson ||
-      !attendanceDate
-    ) {
+    if (!selectedClassId || !selectedLesson || !attendanceDate) {
       return null;
     }
 
     const diaryContent =
-      selectedLesson.content.trim() ||
-      selectedLesson.title;
+      selectedLesson.content.trim() || selectedLesson.title.trim();
 
     const diaryNotes = [
       `Curso: ${selectedLesson.course_name}`,
+      selectedLesson.lesson_order > 0
+        ? `Aula ${selectedLesson.lesson_order}: ${selectedLesson.title}`
+        : selectedLesson.title,
       selectedLesson.notes?.trim() || "",
     ]
       .filter(Boolean)
       .join("\n\n");
 
-    const {
-      data: existingDiary,
-      error: existingDiaryError,
-    } = await supabase
+    const { data: existingDiary, error: existingDiaryError } = await supabase
       .from("lesson_diary")
       .select("id")
       .eq("class_id", selectedClassId)
@@ -233,10 +245,7 @@ export function AttendanceSmartPanel({
       return String(existingDiary.id);
     }
 
-    const {
-      data: createdDiary,
-      error: createdDiaryError,
-    } = await supabase
+    const { data: createdDiary, error: createdDiaryError } = await supabase
       .from("lesson_diary")
       .insert({
         class_id: selectedClassId,
@@ -254,31 +263,68 @@ export function AttendanceSmartPanel({
     return String(createdDiary.id);
   }
 
+  async function recalculateStudentAttendance(studentIds: string[]) {
+    const uniqueStudentIds = Array.from(new Set(studentIds.filter(Boolean)));
+
+    for (const studentId of uniqueStudentIds) {
+      const { data, error } = await supabase
+        .from("attendance")
+        .select("status")
+        .eq("student_id", studentId);
+
+      if (error) {
+        throw error;
+      }
+
+      const attendanceRows = (data as AttendanceRow[] | null) ?? [];
+      const total = attendanceRows.length;
+
+      const presentCount = attendanceRows.filter(
+        (row) => row.status === "Presente" || row.status === "Atraso"
+      ).length;
+
+      const attendancePercentage =
+        total > 0 ? Math.round((presentCount / total) * 100) : 0;
+
+      const { error: updateStudentError } = await supabase
+        .from("students")
+        .update({
+          attendance: attendancePercentage,
+        })
+        .eq("id", studentId);
+
+      if (updateStudentError) {
+        throw updateStudentError;
+      }
+    }
+  }
+
   async function saveAttendance() {
-    if (
-      !selectedClassId ||
-      !selectedLessonId ||
-      !selectedLesson
-    ) {
-      toast.error(
-        "Selecione a turma e a aula."
-      );
+    setMessage(null);
+
+    if (!selectedClassId || !selectedLessonId || !selectedLesson) {
+      setMessage({
+        type: "error",
+        text: "Selecione a turma e a aula antes de salvar a chamada.",
+      });
 
       return;
     }
 
     if (!attendanceDate) {
-      toast.error(
-        "Informe a data da chamada."
-      );
+      setMessage({
+        type: "error",
+        text: "Informe a data da chamada.",
+      });
 
       return;
     }
 
     if (classStudents.length === 0) {
-      toast.error(
-        "Esta turma não possui alunos vinculados."
-      );
+      setMessage({
+        type: "error",
+        text: "Esta turma não possui alunos vinculados.",
+      });
 
       return;
     }
@@ -286,105 +332,111 @@ export function AttendanceSmartPanel({
     setSaving(true);
 
     try {
-      const lessonDiaryId =
-        await getOrCreateLessonDiaryId();
+      const lessonDiaryId = await getOrCreateLessonDiaryId();
 
       if (!lessonDiaryId) {
-        toast.error(
-          "Não foi possível preparar a aula no diário."
-        );
+        setMessage({
+          type: "error",
+          text: "Não foi possível preparar a aula no diário.",
+        });
 
         setSaving(false);
         return;
       }
 
-      const rows = classStudents.map(
-        (student) => {
-          const record =
-            records[student.id] ?? {
-              status: "Presente",
-              arrival_time: "",
-              notes: "",
-            };
-
-          return {
-            student_id: student.id,
-            class_id: selectedClassId,
-            lesson_id: lessonDiaryId,
-            date: attendanceDate,
-            status: record.status,
-            arrival_time:
-              record.status === "Atraso"
-                ? record.arrival_time || null
-                : null,
-            notes:
-              record.notes.trim() || null,
-          };
-        }
-      );
-
-      const { error } = await supabase
+      const { error: deletePreviousError } = await supabase
         .from("attendance")
-        .insert(rows);
+        .delete()
+        .eq("class_id", selectedClassId)
+        .eq("lesson_id", lessonDiaryId)
+        .eq("date", attendanceDate);
+
+      if (deletePreviousError) {
+        throw deletePreviousError;
+      }
+
+      const rows = classStudents.map((student) => {
+        const record = records[student.id] ?? {
+          status: "Presente",
+          arrival_time: "",
+          notes: "",
+        };
+
+        return {
+          student_id: student.id,
+          class_id: selectedClassId,
+          lesson_id: lessonDiaryId,
+          date: attendanceDate,
+          status: record.status,
+          arrival_time:
+            record.status === "Atraso" ? record.arrival_time || null : null,
+          notes: record.notes.trim() || null,
+        };
+      });
+
+      const { data, error } = await supabase
+        .from("attendance")
+        .insert(rows)
+        .select("id");
 
       if (error) {
         throw error;
       }
 
-      toast.success(
-        "Chamada salva com sucesso!"
-      );
-    } catch (error) {
-      toast.error(
-        "Erro ao salvar chamada."
+      if (!data || data.length === 0) {
+        throw new Error(
+          "O Supabase não confirmou nenhum registro de frequência salvo."
+        );
+      }
+
+      await recalculateStudentAttendance(
+        classStudents.map((student) => student.id)
       );
 
-      alert(getErrorMessage(error));
+      setMessage({
+        type: "success",
+        text: `Chamada salva com sucesso! ${data.length} registro(s) gravado(s) e frequência dos alunos atualizada.`,
+      });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: `Erro ao salvar chamada: ${getErrorMessage(error)}`,
+      });
     } finally {
       setSaving(false);
     }
   }
 
   const reportText = useMemo(() => {
-    if (
-      !selectedClass ||
-      !selectedLesson
-    ) {
+    if (!selectedClass || !selectedLesson) {
       return "";
     }
 
-    const date =
-      formatDateToBrazilian(attendanceDate);
+    const date = formatDateToBrazilian(attendanceDate);
 
-    const lines = classStudents.map(
-      (student) => {
-        const record =
-          records[student.id] ?? {
-            status: "Presente",
-            arrival_time: "",
-            notes: "",
-          };
+    const lines = classStudents.map((student) => {
+      const record = records[student.id] ?? {
+        status: "Presente",
+        arrival_time: "",
+        notes: "",
+      };
 
-        const icon =
-          record.status === "Presente"
-            ? "✅"
-            : record.status === "Atraso"
+      const icon =
+        record.status === "Presente"
+          ? "✅"
+          : record.status === "Atraso"
             ? "⚠️"
             : "❌";
 
-        const time =
-          record.status === "Atraso" &&
-          record.arrival_time
-            ? ` (${record.arrival_time})`
-            : "";
-
-        const note = record.notes
-          ? ` — ${record.notes}`
+      const time =
+        record.status === "Atraso" && record.arrival_time
+          ? ` (${record.arrival_time})`
           : "";
 
-        return `${icon} ${student.name} — ${record.status}${time}${note}`;
-      }
-    );
+      const note = record.notes ? ` — ${record.notes}` : "";
+
+      return `${icon} ${student.name} — ${record.status}${time}${note}`;
+    });
 
     const lessonLabel =
       selectedLesson.lesson_order > 0
@@ -409,118 +461,160 @@ ${lines.join("\n")}`;
   ]);
 
   async function copyReport() {
+    setMessage(null);
+
     if (!reportText) {
-      toast.error(
-        "Selecione turma e aula."
-      );
+      setMessage({
+        type: "error",
+        text: "Selecione turma e aula antes de copiar o relatório.",
+      });
 
       return;
     }
 
-    await navigator.clipboard.writeText(
-      reportText
-    );
+    await navigator.clipboard.writeText(reportText);
 
-    toast.success(
-      "Relatório copiado!"
-    );
+    setMessage({
+      type: "success",
+      text: "Relatório copiado!",
+    });
+  }
+
+  function handleSelectLesson(lesson: Lesson) {
+    setSelectedLessonId(lesson.id);
+    setLessonMenuOpen(false);
+    setLessonSearch("");
+    setMessage(null);
   }
 
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
-        <h2 className="text-2xl font-bold">
-          Configurar chamada
-        </h2>
+        <h2 className="text-2xl font-bold">Configurar chamada</h2>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <input
             placeholder="Nome do professor"
             value={teacherName}
-            onChange={(event) =>
-              setTeacherName(
-                event.target.value
-              )
-            }
-            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+            onChange={(event) => setTeacherName(event.target.value)}
+            className="min-w-0 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
           />
 
           <input
             type="date"
             value={attendanceDate}
-            onChange={(event) =>
-              setAttendanceDate(
-                event.target.value
-              )
-            }
-            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+            onChange={(event) => setAttendanceDate(event.target.value)}
+            style={{ colorScheme: "dark" }}
+            className="min-w-0 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-violet-400"
           />
 
           <select
             value={selectedClassId}
             onChange={(event) => {
-              setSelectedClassId(
-                event.target.value
-              );
-
+              setSelectedClassId(event.target.value);
               setSelectedLessonId("");
-
+              setLessonMenuOpen(false);
+              setLessonSearch("");
               setRecords({});
+              setMessage(null);
             }}
-            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+            className="min-w-0 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
           >
-            <option value="">
-              Selecione a turma
-            </option>
+            <option value="">Selecione a turma</option>
 
             {classes.map((classItem) => (
-              <option
-                key={classItem.id}
-                value={classItem.id}
-              >
+              <option key={classItem.id} value={classItem.id}>
                 {classItem.name}
               </option>
             ))}
           </select>
 
-          <select
-            value={selectedLessonId}
-            onChange={(event) =>
-              setSelectedLessonId(
-                event.target.value
-              )
-            }
-            disabled={!selectedClassId}
-            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400 disabled:opacity-50"
-          >
-            <option value="">
-              Selecione a aula
-            </option>
+          <div className="relative min-w-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedClassId) {
+                  return;
+                }
 
-            {classLessons.map((lesson) => (
-              <option
-                key={`${lesson.class_id}-${lesson.id}`}
-                value={lesson.id}
-              >
-                {lesson.course_name} —{" "}
-                {lesson.lesson_order > 0
-                  ? `Aula ${lesson.lesson_order}: `
-                  : ""}
-                {lesson.title}
-              </option>
-            ))}
-          </select>
+                setLessonMenuOpen((current) => !current);
+              }}
+              disabled={!selectedClassId}
+              className="flex w-full min-w-0 items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left outline-none transition hover:border-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                {selectedLesson
+                  ? getLessonLabel(selectedLesson)
+                  : "Selecione a aula"}
+              </span>
+
+              <ChevronDown size={18} className="shrink-0 text-slate-300" />
+            </button>
+
+            {lessonMenuOpen && (
+              <div className="absolute right-0 z-50 mt-2 w-full overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl xl:w-[520px]">
+                <div className="flex items-center gap-2 border-b border-slate-800 px-3 py-3">
+                  <Search size={17} className="text-slate-400" />
+
+                  <input
+                    value={lessonSearch}
+                    onChange={(event) => setLessonSearch(event.target.value)}
+                    placeholder="Pesquisar aula..."
+                    className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+                  />
+                </div>
+
+                <div className="max-h-72 overflow-y-auto p-2">
+                  {filteredClassLessons.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-slate-500">
+                      Nenhuma aula encontrada.
+                    </p>
+                  ) : (
+                    filteredClassLessons.map((lesson) => (
+                      <button
+                        key={`${lesson.class_id}-${lesson.id}`}
+                        type="button"
+                        onClick={() => handleSelectLesson(lesson)}
+                        className={`w-full rounded-xl px-3 py-3 text-left transition hover:bg-violet-500/10 ${
+                          lesson.id === selectedLessonId
+                            ? "bg-violet-500/15 text-violet-200"
+                            : "text-slate-200"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="shrink-0 rounded-lg bg-violet-500/10 px-2 py-1 text-[11px] font-semibold text-violet-300">
+                            {lesson.course_name}
+                          </span>
+
+                          <span className="min-w-0 truncate text-sm font-semibold">
+                            {lesson.lesson_order > 0
+                              ? `Aula ${lesson.lesson_order}: `
+                              : ""}
+                            {lesson.title}
+                          </span>
+                        </div>
+
+                        {lesson.content && (
+                          <p className="mt-1 line-clamp-1 text-xs text-slate-500">
+                            {lesson.content}
+                          </p>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {selectedClassId &&
-          classLessons.length === 0 && (
-            <div className="mt-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm text-yellow-100">
-              Nenhuma aula encontrada para esta
-              turma. Verifique se a turma possui
-              cursos vinculados e se esses cursos
-              possuem grade curricular cadastrada.
-            </div>
-          )}
+        {selectedClassId && classLessons.length === 0 && (
+          <div className="mt-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+            Nenhuma aula encontrada para esta turma. Verifique se a turma possui
+            cursos vinculados e se esses cursos possuem grade curricular
+            cadastrada.
+          </div>
+        )}
 
         {selectedLesson && (
           <div className="mt-6 rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4">
@@ -546,10 +640,27 @@ ${lines.join("\n")}`;
 
             {selectedLesson.notes && (
               <p className="mt-2 text-sm text-slate-400">
-                Observações:{" "}
-                {selectedLesson.notes}
+                Observações: {selectedLesson.notes}
               </p>
             )}
+          </div>
+        )}
+
+        {message && (
+          <div
+            className={`mt-6 flex items-center gap-3 rounded-2xl border px-4 py-3 ${
+              message.type === "success"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                : "border-red-500/30 bg-red-500/10 text-red-300"
+            }`}
+          >
+            {message.type === "success" ? (
+              <CheckCircle size={20} />
+            ) : (
+              <XCircle size={20} />
+            )}
+
+            <span className="font-medium">{message.text}</span>
           </div>
         )}
       </div>
@@ -557,9 +668,7 @@ ${lines.join("\n")}`;
       <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-2xl font-bold">
-              Lista de chamada
-            </h2>
+            <h2 className="text-2xl font-bold">Lista de chamada</h2>
 
             <p className="mt-1 text-sm text-slate-400">
               Faça a marcação rápida dos alunos.
@@ -568,9 +677,7 @@ ${lines.join("\n")}`;
 
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() =>
-                setAllStatus("Presente")
-              }
+              onClick={() => setAllStatus("Presente")}
               disabled={!selectedClassId}
               className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:opacity-50"
             >
@@ -578,9 +685,7 @@ ${lines.join("\n")}`;
             </button>
 
             <button
-              onClick={() =>
-                setAllStatus("Falta")
-              }
+              onClick={() => setAllStatus("Falta")}
               disabled={!selectedClassId}
               className="rounded-2xl bg-red-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-400 disabled:opacity-50"
             >
@@ -590,113 +695,73 @@ ${lines.join("\n")}`;
         </div>
 
         {!selectedClassId ? (
-          <p className="mt-4 text-slate-500">
-            Selecione uma turma.
-          </p>
+          <p className="mt-4 text-slate-500">Selecione uma turma.</p>
         ) : classStudents.length === 0 ? (
-          <p className="mt-4 text-slate-500">
-            Nenhum aluno vinculado.
-          </p>
+          <p className="mt-4 text-slate-500">Nenhum aluno vinculado.</p>
         ) : (
           <div className="mt-6 space-y-3">
             {classStudents.map((student) => {
-              const record =
-                records[student.id] ?? {
-                  status: "Presente",
-                  arrival_time: "",
-                  notes: "",
-                };
+              const record = records[student.id] ?? {
+                status: "Presente",
+                arrival_time: "",
+                notes: "",
+              };
+
+              const shortName = getShortStudentName(student.name);
 
               return (
                 <div
                   key={student.id}
                   className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4"
                 >
-                  <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-                    <div className="min-w-[220px]">
-                      <p className="font-semibold text-white">
-                        {student.name}
+                  <div className="grid gap-3 xl:grid-cols-[220px_330px_120px_minmax(180px,1fr)] xl:items-center">
+                    <div className="min-w-0">
+                      <p
+                        title={student.name}
+                        className="truncate font-semibold text-white"
+                      >
+                        {shortName}
                       </p>
 
-                      <p className="text-sm text-slate-400">
-                        {record.status}
-                      </p>
+                      <p className="text-sm text-slate-400">{record.status}</p>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
                       <StatusButton
-                        active={
-                          record.status ===
-                          "Presente"
-                        }
+                        active={record.status === "Presente"}
                         color="green"
-                        icon={
-                          <CheckCircle2
-                            size={15}
-                          />
-                        }
+                        icon={<CheckCircle2 size={15} />}
                         label="Presente"
                         onClick={() =>
-                          updateRecord(
-                            student.id,
-                            "status",
-                            "Presente"
-                          )
+                          updateRecord(student.id, "status", "Presente")
                         }
                       />
 
                       <StatusButton
-                        active={
-                          record.status ===
-                          "Falta"
-                        }
+                        active={record.status === "Falta"}
                         color="red"
-                        icon={
-                          <XCircle
-                            size={15}
-                          />
-                        }
+                        icon={<XCircle size={15} />}
                         label="Falta"
                         onClick={() =>
-                          updateRecord(
-                            student.id,
-                            "status",
-                            "Falta"
-                          )
+                          updateRecord(student.id, "status", "Falta")
                         }
                       />
 
                       <StatusButton
-                        active={
-                          record.status ===
-                          "Atraso"
-                        }
+                        active={record.status === "Atraso"}
                         color="yellow"
-                        icon={
-                          <AlertTriangle
-                            size={15}
-                          />
-                        }
+                        icon={<AlertTriangle size={15} />}
                         label="Atraso"
                         onClick={() =>
-                          updateRecord(
-                            student.id,
-                            "status",
-                            "Atraso"
-                          )
+                          updateRecord(student.id, "status", "Atraso")
                         }
                       />
                     </div>
 
                     <input
                       type="time"
-                      disabled={
-                        record.status !==
-                        "Atraso"
-                      }
-                      value={
-                        record.arrival_time
-                      }
+                      disabled={record.status !== "Atraso"}
+                      value={record.arrival_time}
                       onChange={(event) =>
                         updateRecord(
                           student.id,
@@ -704,20 +769,17 @@ ${lines.join("\n")}`;
                           event.target.value
                         )
                       }
-                      className="h-11 w-[120px] rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-violet-400 disabled:opacity-40"
+                      style={{ colorScheme: "dark" }}
+                      className="h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-violet-400 disabled:opacity-40"
                     />
 
                     <input
                       placeholder="Observação individual..."
                       value={record.notes}
                       onChange={(event) =>
-                        updateRecord(
-                          student.id,
-                          "notes",
-                          event.target.value
-                        )
+                        updateRecord(student.id, "notes", event.target.value)
                       }
-                      className="h-11 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-4 text-sm outline-none focus:border-violet-400"
+                      className="h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 text-sm outline-none focus:border-violet-400"
                     />
                   </div>
                 </div>
@@ -733,9 +795,7 @@ ${lines.join("\n")}`;
             className="flex items-center gap-2 rounded-2xl bg-violet-500 px-5 py-3 font-semibold text-white transition hover:bg-violet-400 disabled:opacity-50"
           >
             <Save size={18} />
-            {saving
-              ? "Salvando..."
-              : "Salvar chamada"}
+            {saving ? "Salvando..." : "Salvar chamada"}
           </button>
 
           <button
@@ -768,12 +828,13 @@ function StatusButton({
     ? color === "green"
       ? "bg-emerald-500 text-white border-emerald-400"
       : color === "red"
-      ? "bg-red-500 text-white border-red-400"
-      : "bg-yellow-500 text-black border-yellow-400"
+        ? "bg-red-500 text-white border-red-400"
+        : "bg-yellow-500 text-black border-yellow-400"
     : "bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800";
 
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${styles}`}
     >

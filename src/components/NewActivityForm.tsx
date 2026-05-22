@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle, XCircle } from "lucide-react";
+import { CalendarDays, CheckCircle, XCircle } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 type ClassItem = {
@@ -9,10 +9,20 @@ type ClassItem = {
   name: string;
 };
 
+function getTodayDate() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
 export function NewActivityForm({ classes }: { classes: ClassItem[] }) {
   const [classId, setClassId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [startDate, setStartDate] = useState(getTodayDate());
   const [dueDate, setDueDate] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -24,10 +34,19 @@ export function NewActivityForm({ classes }: { classes: ClassItem[] }) {
   async function handleCreateActivity() {
     setMessage(null);
 
-    if (!classId || !title || !description || !dueDate) {
+    if (!classId || !title.trim() || !description.trim() || !startDate || !dueDate) {
       setMessage({
         type: "error",
-        text: "Preencha todos os campos antes de salvar.",
+        text: "Preencha turma, título, descrição, data de início e data de entrega.",
+      });
+
+      return;
+    }
+
+    if (dueDate < startDate) {
+      setMessage({
+        type: "error",
+        text: "A data de entrega não pode ser anterior à data de início.",
       });
 
       return;
@@ -39,6 +58,7 @@ export function NewActivityForm({ classes }: { classes: ClassItem[] }) {
       class_id: classId,
       title: title.trim(),
       description: description.trim(),
+      start_date: startDate,
       due_date: dueDate,
       archived: false,
     });
@@ -48,7 +68,7 @@ export function NewActivityForm({ classes }: { classes: ClassItem[] }) {
     if (error) {
       setMessage({
         type: "error",
-        text: "Erro ao criar atividade.",
+        text: `Erro ao criar atividade: ${error.message}`,
       });
 
       return;
@@ -62,6 +82,7 @@ export function NewActivityForm({ classes }: { classes: ClassItem[] }) {
     setClassId("");
     setTitle("");
     setDescription("");
+    setStartDate(getTodayDate());
     setDueDate("");
 
     setTimeout(() => {
@@ -71,7 +92,20 @@ export function NewActivityForm({ classes }: { classes: ClassItem[] }) {
 
   return (
     <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
-      <h2 className="text-2xl font-bold">Nova atividade</h2>
+      <div className="flex items-start gap-4">
+        <div className="rounded-2xl bg-violet-500/15 p-3 text-violet-400">
+          <CalendarDays size={24} />
+        </div>
+
+        <div>
+          <h2 className="text-2xl font-bold">Nova atividade</h2>
+
+          <p className="mt-1 text-sm text-slate-400">
+            Defina a data de início e a data de entrega para que o aluno receba
+            lembretes quando o prazo estiver próximo.
+          </p>
+        </div>
+      </div>
 
       {message && (
         <div
@@ -113,12 +147,33 @@ export function NewActivityForm({ classes }: { classes: ClassItem[] }) {
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         />
 
-        <input
-          type="date"
-          value={dueDate}
-          onChange={(event) => setDueDate(event.target.value)}
-          className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
-        />
+        <div>
+          <label className="mb-2 block text-sm font-semibold text-slate-300">
+            Data de início
+          </label>
+
+          <input
+            type="date"
+            value={startDate}
+            onChange={(event) => setStartDate(event.target.value)}
+            style={{ colorScheme: "dark" }}
+            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-violet-400"
+          />
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-semibold text-slate-300">
+            Data de entrega
+          </label>
+
+          <input
+            type="date"
+            value={dueDate}
+            onChange={(event) => setDueDate(event.target.value)}
+            style={{ colorScheme: "dark" }}
+            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-violet-400"
+          />
+        </div>
 
         <textarea
           placeholder="Descrição da atividade"

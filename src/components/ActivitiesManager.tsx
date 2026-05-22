@@ -28,7 +28,8 @@ type Activity = {
   id: string;
   title: string;
   description: string | null;
-  due_date: string;
+  start_date: string | null;
+  due_date: string | null;
   class_id: string | null;
   class_name: string;
   archived: boolean;
@@ -49,6 +50,64 @@ type Submission = {
   student_name: string;
 };
 
+function formatDate(date: string | null) {
+  if (!date) {
+    return "Sem data";
+  }
+
+  const parsedDate = new Date(`${date}T00:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Sem data";
+  }
+
+  return parsedDate.toLocaleDateString("pt-BR");
+}
+
+function getDeadlineStatus(dueDate: string | null) {
+  if (!dueDate) {
+    return {
+      text: "Sem prazo",
+      className: "bg-slate-700/40 text-slate-300",
+    };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const deadline = new Date(`${dueDate}T00:00:00`);
+  deadline.setHours(0, 0, 0, 0);
+
+  const diffInMs = deadline.getTime() - today.getTime();
+  const diffInDays = Math.ceil(diffInMs / (1000 * 60 * 60 * 24));
+
+  if (diffInDays < 0) {
+    return {
+      text: "Atrasada",
+      className: "bg-red-500/10 text-red-300",
+    };
+  }
+
+  if (diffInDays === 0) {
+    return {
+      text: "Entrega hoje",
+      className: "bg-yellow-500/10 text-yellow-300",
+    };
+  }
+
+  if (diffInDays <= 3) {
+    return {
+      text: `Faltam ${diffInDays} dia(s)`,
+      className: "bg-orange-500/10 text-orange-300",
+    };
+  }
+
+  return {
+    text: "Em andamento",
+    className: "bg-emerald-500/10 text-emerald-300",
+  };
+}
+
 export function ActivitiesManager({
   activities,
   classes,
@@ -66,6 +125,7 @@ export function ActivitiesManager({
   const [editClassId, setEditClassId] = useState("");
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editStartDate, setEditStartDate] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
 
@@ -74,7 +134,11 @@ export function ActivitiesManager({
 
   function getShortName(name: string) {
     const parts = name.trim().split(" ").filter(Boolean);
-    if (parts.length <= 2) return parts.join(" ");
+
+    if (parts.length <= 2) {
+      return parts.join(" ");
+    }
+
     return `${parts[0]} ${parts[1]}`;
   }
 
@@ -129,7 +193,8 @@ export function ActivitiesManager({
     setEditClassId(activity.class_id || "");
     setEditTitle(activity.title);
     setEditDescription(activity.description || "");
-    setEditDueDate(activity.due_date);
+    setEditStartDate(activity.start_date || activity.due_date || "");
+    setEditDueDate(activity.due_date || "");
   }
 
   function cancelEditing() {
@@ -137,12 +202,18 @@ export function ActivitiesManager({
     setEditClassId("");
     setEditTitle("");
     setEditDescription("");
+    setEditStartDate("");
     setEditDueDate("");
   }
 
   async function saveActivity(activityId: string) {
-    if (!editClassId || !editTitle.trim() || !editDueDate) {
-      alert("Preencha turma, título e data de entrega.");
+    if (!editClassId || !editTitle.trim() || !editStartDate || !editDueDate) {
+      alert("Preencha turma, título, data de início e data de entrega.");
+      return;
+    }
+
+    if (editDueDate < editStartDate) {
+      alert("A data de entrega não pode ser anterior à data de início.");
       return;
     }
 
@@ -154,6 +225,7 @@ export function ActivitiesManager({
         class_id: editClassId,
         title: editTitle.trim(),
         description: editDescription.trim() || null,
+        start_date: editStartDate,
         due_date: editDueDate,
       })
       .eq("id", activityId);
@@ -161,7 +233,7 @@ export function ActivitiesManager({
     setSavingId(null);
 
     if (error) {
-      alert("Erro ao editar atividade.");
+      alert(`Erro ao editar atividade: ${error.message}`);
       return;
     }
 
@@ -170,7 +242,10 @@ export function ActivitiesManager({
 
   async function deleteActivity(activityId: string) {
     const confirmed = confirm("Deseja excluir esta atividade?");
-    if (!confirmed) return;
+
+    if (!confirmed) {
+      return;
+    }
 
     const { error } = await supabase
       .from("activities")
@@ -178,7 +253,7 @@ export function ActivitiesManager({
       .eq("id", activityId);
 
     if (error) {
-      alert("Erro ao excluir atividade.");
+      alert(`Erro ao excluir atividade: ${error.message}`);
       return;
     }
 
@@ -192,7 +267,7 @@ export function ActivitiesManager({
       .eq("id", activityId);
 
     if (error) {
-      alert("Erro ao arquivar atividade.");
+      alert(`Erro ao arquivar atividade: ${error.message}`);
       return;
     }
 
@@ -206,7 +281,7 @@ export function ActivitiesManager({
       .eq("id", activityId);
 
     if (error) {
-      alert("Erro ao restaurar atividade.");
+      alert(`Erro ao restaurar atividade: ${error.message}`);
       return;
     }
 
@@ -221,6 +296,7 @@ export function ActivitiesManager({
             <h2 className="text-2xl font-bold text-white">
               Atividades ativas
             </h2>
+
             <p className="mt-1 text-sm text-slate-400">
               Atividades ainda em andamento.
             </p>
@@ -246,6 +322,7 @@ export function ActivitiesManager({
                 editClassId={editClassId}
                 editTitle={editTitle}
                 editDescription={editDescription}
+                editStartDate={editStartDate}
                 editDueDate={editDueDate}
                 savingId={savingId}
                 onStartEditing={startEditing}
@@ -257,6 +334,7 @@ export function ActivitiesManager({
                 setEditClassId={setEditClassId}
                 setEditTitle={setEditTitle}
                 setEditDescription={setEditDescription}
+                setEditStartDate={setEditStartDate}
                 setEditDueDate={setEditDueDate}
               />
             ))
@@ -275,6 +353,7 @@ export function ActivitiesManager({
               <h2 className="text-xl font-bold text-white">
                 Histórico de arquivadas
               </h2>
+
               <p className="text-sm text-slate-400">
                 Edite, exclua ou restaure atividades arquivadas.
               </p>
@@ -306,6 +385,7 @@ export function ActivitiesManager({
                   editClassId={editClassId}
                   editTitle={editTitle}
                   editDescription={editDescription}
+                  editStartDate={editStartDate}
                   editDueDate={editDueDate}
                   savingId={savingId}
                   onStartEditing={startEditing}
@@ -317,6 +397,7 @@ export function ActivitiesManager({
                   setEditClassId={setEditClassId}
                   setEditTitle={setEditTitle}
                   setEditDescription={setEditDescription}
+                  setEditStartDate={setEditStartDate}
                   setEditDueDate={setEditDueDate}
                 />
               ))
@@ -337,6 +418,7 @@ function ActivityCard({
   editClassId,
   editTitle,
   editDescription,
+  editStartDate,
   editDueDate,
   savingId,
   onStartEditing,
@@ -348,6 +430,7 @@ function ActivityCard({
   setEditClassId,
   setEditTitle,
   setEditDescription,
+  setEditStartDate,
   setEditDueDate,
 }: {
   activity: Activity;
@@ -364,6 +447,7 @@ function ActivityCard({
   editClassId: string;
   editTitle: string;
   editDescription: string;
+  editStartDate: string;
   editDueDate: string;
   savingId: string | null;
   onStartEditing: (activity: Activity) => void;
@@ -375,8 +459,11 @@ function ActivityCard({
   setEditClassId: (value: string) => void;
   setEditTitle: (value: string) => void;
   setEditDescription: (value: string) => void;
+  setEditStartDate: (value: string) => void;
   setEditDueDate: (value: string) => void;
 }) {
+  const deadlineStatus = getDeadlineStatus(activity.due_date);
+
   return (
     <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-5 transition hover:border-violet-500/40">
       <div className="flex items-start justify-between gap-4">
@@ -384,9 +471,19 @@ function ActivityCard({
           <GraduationCap size={28} />
         </div>
 
-        <span className="rounded-full border border-slate-700 px-3 py-1 text-sm text-slate-300">
-          {activity.class_name}
-        </span>
+        <div className="flex flex-col items-end gap-2">
+          <span className="rounded-full border border-slate-700 px-3 py-1 text-sm text-slate-300">
+            {activity.class_name}
+          </span>
+
+          {!isArchived && (
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-semibold ${deadlineStatus.className}`}
+            >
+              {deadlineStatus.text}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -441,12 +538,35 @@ function ActivityCard({
             className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-violet-400"
           />
 
-          <input
-            type="date"
-            value={editDueDate}
-            onChange={(event) => setEditDueDate(event.target.value)}
-            className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-violet-400"
-          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-400">
+                Data de início
+              </label>
+
+              <input
+                type="date"
+                value={editStartDate}
+                onChange={(event) => setEditStartDate(event.target.value)}
+                style={{ colorScheme: "dark" }}
+                className="h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-violet-400"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-400">
+                Data de entrega
+              </label>
+
+              <input
+                type="date"
+                value={editDueDate}
+                onChange={(event) => setEditDueDate(event.target.value)}
+                style={{ colorScheme: "dark" }}
+                className="h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-violet-400"
+              />
+            </div>
+          </div>
 
           <textarea
             value={editDescription}
@@ -477,15 +597,24 @@ function ActivityCard({
         </div>
       ) : (
         <>
-          <h2 className="mt-4 text-xl font-bold text-white">{activity.title}</h2>
+          <h2 className="mt-4 text-xl font-bold text-white">
+            {activity.title}
+          </h2>
 
           <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-400">
             {activity.description || "Sem descrição."}
           </p>
 
-          <div className="mt-4 flex items-center gap-2 text-sm text-slate-300">
-            <CalendarDays size={17} className="text-violet-400" />
-            Entrega: {new Date(activity.due_date).toLocaleDateString("pt-BR")}
+          <div className="mt-4 grid gap-2">
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm text-slate-300">
+              <CalendarDays size={17} className="text-emerald-400" />
+              Início: {formatDate(activity.start_date)}
+            </div>
+
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm text-slate-300">
+              <CalendarDays size={17} className="text-violet-400" />
+              Entrega: {formatDate(activity.due_date)}
+            </div>
           </div>
 
           <div className="mt-4 space-y-2">

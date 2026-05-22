@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+import type { ReactNode } from "react";
 import {
   TrendingUp,
   UserRound,
@@ -7,9 +9,7 @@ import {
 } from "lucide-react";
 
 import { supabase } from "../../../lib/supabase";
-
 import { StudentRegistrationArea } from "../../../components/StudentRegistrationArea";
-
 import { StudentsTable } from "../../../components/aluno/StudentsTable";
 
 type ClassItem = {
@@ -23,39 +23,28 @@ type CourseItem = {
 };
 
 export default async function AlunosPage() {
-  const { data: students, error } =
-    await supabase
-      .from("students")
-      .select("*")
-      .order("name", {
-        ascending: true,
-      });
+  const { data: students, error } = await supabase
+    .from("students")
+    .select("*")
+    .order("name", {
+      ascending: true,
+    });
 
-  const {
-    data: classes,
-    error: classesError,
-  } = await supabase
+  const { data: classes, error: classesError } = await supabase
     .from("classes")
     .select("id, name")
     .order("name", {
       ascending: true,
     });
 
-  const {
-    data: courses,
-    error: coursesError,
-  } = await supabase
+  const { data: courses, error: coursesError } = await supabase
     .from("courses")
     .select("id, name")
     .order("name", {
       ascending: true,
     });
 
-  if (
-    error ||
-    classesError ||
-    coursesError
-  ) {
+  if (error || classesError || coursesError) {
     return (
       <div className="p-6 text-white">
         <h1 className="text-3xl font-bold">
@@ -71,17 +60,17 @@ export default async function AlunosPage() {
     );
   }
 
-  const totalStudents =
-    students?.length ?? 0;
+  const safeClasses = (classes as ClassItem[]) ?? [];
+  const safeCourses = (courses as CourseItem[]) ?? [];
+
+  const totalStudents = students?.length ?? 0;
 
   const attentionStudents =
     students?.filter(
-      (student) =>
-        student.status === "Atenção"
+      (student) => student.status === "Atenção"
     ).length ?? 0;
 
-  const totalClasses =
-    classes?.length ?? 0;
+  const totalClasses = classes?.length ?? 0;
 
   return (
     <>
@@ -92,22 +81,15 @@ export default async function AlunosPage() {
           </h1>
 
           <p className="mt-1 text-slate-400">
-            Cadastre alunos vinculados às
-            turmas reais do sistema.
+            Cadastre alunos vinculados às turmas reais do sistema.
           </p>
         </div>
       </header>
 
       <section className="p-6">
         <StudentRegistrationArea
-          classes={
-            (classes as ClassItem[]) ??
-            []
-          }
-          courses={
-            (courses as CourseItem[]) ??
-            []
-          }
+          classes={safeClasses}
+          courses={safeCourses}
         />
 
         <div className="mt-8 grid gap-5 md:grid-cols-3">
@@ -119,9 +101,7 @@ export default async function AlunosPage() {
 
           <SummaryCard
             title="Em atenção"
-            value={String(
-              attentionStudents
-            )}
+            value={String(attentionStudents)}
             icon={<TrendingUp />}
           />
 
@@ -133,9 +113,9 @@ export default async function AlunosPage() {
         </div>
 
         <StudentsTable
-          students={
-            (students as any[]) ?? []
-          }
+          students={(students as any[]) ?? []}
+          classes={safeClasses}
+          courses={safeCourses}
         />
       </section>
     </>
@@ -149,7 +129,7 @@ function SummaryCard({
 }: {
   title: string;
   value: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }) {
   return (
     <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">

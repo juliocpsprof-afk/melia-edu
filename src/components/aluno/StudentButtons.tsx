@@ -51,6 +51,20 @@ function getButtonIcon(url: string, label: string) {
   return Link2;
 }
 
+function getSafeUrl(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return "#";
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  return `https://${trimmed}`;
+}
+
 export default function StudentButtons() {
   const router = useRouter();
 
@@ -83,6 +97,23 @@ export default function StudentButtons() {
     }
 
     loadButtons();
+
+    const channel = supabase
+      .channel("student_buttons_portal_realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "student_portal_buttons",
+        },
+        () => loadButtons()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [router]);
 
   if (loading) {
@@ -106,11 +137,12 @@ export default function StudentButtons() {
             </Link>
 
             <h1 className="text-2xl font-black sm:text-3xl">
-              Links Rápidos
+              Acessos rápidos
             </h1>
 
             <p className="mt-1 max-w-md text-sm text-slate-400">
-              Acesse materiais, aulas, vídeos e plataformas externas.
+              Materiais, aulas, vídeos, formulários e plataformas que o
+              professor separou para você.
             </p>
           </div>
 
@@ -127,7 +159,18 @@ export default function StudentButtons() {
       <section className="mx-auto max-w-6xl px-4 py-6 sm:px-5 sm:py-8">
         {buttons.length === 0 ? (
           <div className="rounded-[28px] border border-slate-800 bg-slate-900/70 p-8 text-center text-slate-300 sm:rounded-[32px] sm:p-10">
-            O professor ainda não cadastrou links para você.
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[24px] bg-cyan-500/10 text-cyan-300">
+              <Link2 className="h-8 w-8" />
+            </div>
+
+            <h2 className="mt-5 text-2xl font-black text-white">
+              Nenhum link disponível ainda
+            </h2>
+
+            <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-400">
+              Quando o professor cadastrar botões para você, eles aparecerão
+              nesta área e também no seu painel inicial.
+            </p>
           </div>
         ) : (
           <div className="grid gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -138,7 +181,7 @@ export default function StudentButtons() {
               return (
                 <a
                   key={button.id}
-                  href={button.button_url}
+                  href={getSafeUrl(button.button_url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`group relative overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br ${gradient} p-[1px] transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl sm:rounded-[32px]`}
@@ -158,7 +201,9 @@ export default function StudentButtons() {
                       </div>
 
                       <div className="mt-7 sm:mt-8">
-                        <p className="text-sm text-slate-300">Link rápido</p>
+                        <p className="text-sm text-slate-300">
+                          Link rápido
+                        </p>
 
                         <h2 className="mt-2 break-words text-2xl font-black text-white sm:text-3xl">
                           {button.button_label}

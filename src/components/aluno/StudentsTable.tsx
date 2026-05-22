@@ -1,33 +1,74 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Mail,
-  Phone,
+  Edit3,
+  Save,
   Search,
+  X,
 } from "lucide-react";
 
+import { supabase } from "../../lib/supabase";
 import { DeleteStudentButton } from "../DeleteStudentButton";
+
+type ClassItem = {
+  id: string;
+  name: string;
+};
+
+type CourseItem = {
+  id: string;
+  name: string;
+};
 
 type Student = {
   id: string;
+  name: string | null;
+  email: string | null;
+  class_id?: string | null;
+  class_name: string | null;
+  course_id?: string | null;
+  course_name: string | null;
+  phone: string | null;
+  average: number | null;
+  attendance: number | null;
+  status: string | null;
+};
+
+type EditForm = {
   name: string;
-  email: string;
-  class_name: string;
-  course_name: string;
   phone: string;
-  average: number;
-  attendance: number;
+  email: string;
+  class_id: string;
+  course_id: string;
+  average: string;
+  attendance: string;
   status: string;
 };
 
 export function StudentsTable({
   students,
+  classes,
+  courses,
 }: {
   students: Student[];
+  classes: ClassItem[];
+  courses: CourseItem[];
 }) {
   const [search, setSearch] = useState("");
+  const [editingId, setEditingId] = useState("");
+  const [savingId, setSavingId] = useState("");
+  const [editForm, setEditForm] = useState<EditForm>({
+    name: "",
+    phone: "",
+    email: "",
+    class_id: "",
+    course_id: "",
+    average: "",
+    attendance: "",
+    status: "Regular",
+  });
 
   function normalizeText(value: string) {
     return value
@@ -35,6 +76,30 @@ export function StudentsTable({
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .trim();
+  }
+
+  function getStudentName(student: Student) {
+    return student.name?.trim() || "Aluno sem nome";
+  }
+
+  function getStudentInitial(student: Student) {
+    return getStudentName(student).charAt(0).toUpperCase();
+  }
+
+  function getNumberValue(value: string) {
+    const normalizedValue = value.trim();
+
+    if (!normalizedValue) {
+      return 0;
+    }
+
+    const numberValue = Number(normalizedValue);
+
+    if (Number.isNaN(numberValue)) {
+      return 0;
+    }
+
+    return numberValue;
   }
 
   const filteredStudents = useMemo(() => {
@@ -46,15 +111,114 @@ export function StudentsTable({
 
     return students.filter((student) => {
       const searchableText = normalizeText(`
-        ${student.name}
-        ${student.email}
-        ${student.class_name}
-        ${student.course_name}
+        ${student.name ?? ""}
+        ${student.email ?? ""}
+        ${student.phone ?? ""}
+        ${student.class_name ?? ""}
+        ${student.course_name ?? ""}
+        ${student.status ?? ""}
       `);
 
       return searchableText.includes(normalizedSearch);
     });
   }, [students, search]);
+
+  function startEdit(student: Student) {
+    const selectedClass = classes.find(
+      (classItem) =>
+        classItem.id === student.class_id ||
+        normalizeText(classItem.name) === normalizeText(student.class_name ?? "")
+    );
+
+    const selectedCourse = courses.find(
+      (course) =>
+        course.id === student.course_id ||
+        normalizeText(course.name) === normalizeText(student.course_name ?? "")
+    );
+
+    setEditingId(student.id);
+
+    setEditForm({
+      name: student.name ?? "",
+      phone: student.phone ?? "",
+      email: student.email ?? "",
+      class_id: selectedClass?.id ?? "",
+      course_id: selectedCourse?.id ?? "",
+      average: String(student.average ?? 0),
+      attendance: String(student.attendance ?? 0),
+      status: student.status || "Regular",
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId("");
+    setSavingId("");
+
+    setEditForm({
+      name: "",
+      phone: "",
+      email: "",
+      class_id: "",
+      course_id: "",
+      average: "",
+      attendance: "",
+      status: "Regular",
+    });
+  }
+
+  function updateEditForm(field: keyof EditForm, value: string) {
+    setEditForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  async function saveEdit(studentId: string) {
+    if (!editForm.name.trim()) {
+      alert("Digite pelo menos o nome do aluno.");
+      return;
+    }
+
+    const selectedClass = classes.find(
+      (classItem) => classItem.id === editForm.class_id
+    );
+
+    const selectedCourse = courses.find(
+      (course) => course.id === editForm.course_id
+    );
+
+    setSavingId(studentId);
+
+    const { error } = await supabase
+      .from("students")
+      .update({
+        name: editForm.name.trim(),
+        phone: editForm.phone.trim() || null,
+        email: editForm.email.trim() || null,
+
+        class_id: selectedClass?.id || null,
+        class_name: selectedClass?.name || null,
+
+        course_id: selectedCourse?.id || null,
+        course_name: selectedCourse?.name || null,
+
+        average: getNumberValue(editForm.average),
+        attendance: getNumberValue(editForm.attendance),
+
+        status: editForm.status || "Regular",
+      })
+      .eq("id", studentId);
+
+    setSavingId("");
+
+    if (error) {
+      alert(`Erro ao editar aluno: ${error.message}`);
+      return;
+    }
+
+    cancelEdit();
+    window.location.reload();
+  }
 
   return (
     <div className="mt-8 rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
@@ -65,7 +229,7 @@ export function StudentsTable({
           </h2>
 
           <p className="mt-1 text-sm text-slate-400">
-            Pesquise por nome, email, turma ou curso.
+            Pesquise por nome, telefone, turma, curso ou status.
           </p>
         </div>
 
@@ -77,9 +241,7 @@ export function StudentsTable({
 
           <input
             value={search}
-            onChange={(event) =>
-              setSearch(event.target.value)
-            }
+            onChange={(event) => setSearch(event.target.value)}
             placeholder="Buscar aluno..."
             className="w-full bg-transparent outline-none placeholder:text-slate-500"
           />
@@ -87,12 +249,11 @@ export function StudentsTable({
       </div>
 
       <div className="mb-4 text-sm text-slate-400">
-        {filteredStudents.length} aluno(s)
-        encontrado(s)
+        {filteredStudents.length} aluno(s) encontrado(s)
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-800">
-        <table className="w-full border-collapse">
+      <div className="overflow-x-auto rounded-2xl border border-slate-800">
+        <table className="w-full min-w-[1050px] border-collapse">
           <thead className="bg-slate-950/70 text-left text-sm text-slate-400">
             <tr>
               <th className="p-4">Aluno</th>
@@ -107,75 +268,211 @@ export function StudentsTable({
           </thead>
 
           <tbody>
-            {filteredStudents.map((student) => (
-              <tr
-                key={student.id}
-                className="border-t border-slate-800 transition hover:bg-white/[0.03]"
-              >
-                <td className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-violet-500 font-bold">
-                      {student.name.charAt(0)}
-                    </div>
+            {filteredStudents.map((student) => {
+              const isEditing = editingId === student.id;
 
-                    <div>
-                      <Link
-                        href={`/dashboard/alunos/${student.id}`}
-                        className="font-semibold transition hover:text-violet-300"
-                      >
-                        {student.name}
-                      </Link>
+              return (
+                <Fragment key={student.id}>
+                  <tr className="border-t border-slate-800 transition hover:bg-white/[0.03]">
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-violet-500 font-bold">
+                          {getStudentInitial(student)}
+                        </div>
 
-                      <p className="text-sm text-slate-400">
-                        {student.email}
-                      </p>
-                    </div>
-                  </div>
-                </td>
+                        <div className="min-w-0">
+                          <Link
+                            href={`/dashboard/alunos/${student.id}`}
+                            className="block max-w-[220px] truncate font-semibold transition hover:text-violet-300"
+                            title={getStudentName(student)}
+                          >
+                            {getStudentName(student)}
+                          </Link>
 
-                <td className="p-4 text-slate-300">
-                  {student.class_name || "Sem turma"}
-                </td>
+                          <p className="max-w-[220px] truncate text-sm text-slate-400">
+                            {student.email || "E-mail não informado"}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
 
-                <td className="p-4 text-slate-300">
-                  {student.course_name || "Sem curso"}
-                </td>
+                    <td className="p-4 text-slate-300">
+                      {student.class_name || "Sem turma"}
+                    </td>
 
-                <td className="p-4 text-slate-300">
-                  {student.phone || "-"}
-                </td>
+                    <td className="p-4 text-slate-300">
+                      {student.course_name || "Sem curso"}
+                    </td>
 
-                <td className="p-4 font-semibold">
-                  {student.average}
-                </td>
+                    <td className="p-4 text-slate-300">
+                      {student.phone || "-"}
+                    </td>
 
-                <td className="p-4 font-semibold">
-                  {student.attendance}%
-                </td>
+                    <td className="p-4 font-semibold">
+                      {student.average ?? 0}
+                    </td>
 
-                <td className="p-4">
-                  <StatusBadge
-                    status={student.status}
-                  />
-                </td>
+                    <td className="p-4 font-semibold">
+                      {student.attendance ?? 0}%
+                    </td>
 
-                <td className="p-4">
-                  <div className="flex gap-2">
-                    <button className="rounded-xl border border-slate-700 p-2 text-slate-300 transition hover:bg-white/5">
-                      <Mail size={18} />
-                    </button>
+                    <td className="p-4">
+                      <StatusBadge status={student.status || "Regular"} />
+                    </td>
 
-                    <button className="rounded-xl border border-slate-700 p-2 text-slate-300 transition hover:bg-white/5">
-                      <Phone size={18} />
-                    </button>
+                    <td className="p-4">
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEdit(student)}
+                          className="flex items-center gap-2 rounded-xl border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm font-semibold text-blue-300 transition hover:bg-blue-500/20"
+                        >
+                          <Edit3 size={17} />
+                          Editar
+                        </button>
 
-                    <DeleteStudentButton
-                      studentId={student.id}
-                    />
-                  </div>
-                </td>
-              </tr>
-            ))}
+                        <DeleteStudentButton studentId={student.id} />
+                      </div>
+                    </td>
+                  </tr>
+
+                  {isEditing && (
+                    <tr className="border-t border-slate-800 bg-slate-950/40">
+                      <td colSpan={8} className="p-4">
+                        <div className="rounded-3xl border border-blue-500/20 bg-blue-500/5 p-5">
+                          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <h3 className="text-xl font-bold text-white">
+                                Editar aluno
+                              </h3>
+
+                              <p className="text-sm text-slate-400">
+                                Corrija ou complete as informações do aluno.
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={cancelEdit}
+                              className="flex items-center justify-center gap-2 rounded-2xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+                            >
+                              <X size={16} />
+                              Cancelar
+                            </button>
+                          </div>
+
+                          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                            <input
+                              value={editForm.name}
+                              onChange={(event) =>
+                                updateEditForm("name", event.target.value)
+                              }
+                              placeholder="Nome do aluno"
+                              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-400"
+                            />
+
+                            <input
+                              value={editForm.phone}
+                              onChange={(event) =>
+                                updateEditForm("phone", event.target.value)
+                              }
+                              placeholder="Telefone"
+                              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-400"
+                            />
+
+                            <input
+                              value={editForm.email}
+                              onChange={(event) =>
+                                updateEditForm("email", event.target.value)
+                              }
+                              placeholder="E-mail"
+                              type="email"
+                              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-400"
+                            />
+
+                            <select
+                              value={editForm.class_id}
+                              onChange={(event) =>
+                                updateEditForm("class_id", event.target.value)
+                              }
+                              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-400"
+                            >
+                              <option value="">Sem turma</option>
+
+                              {classes.map((classItem) => (
+                                <option key={classItem.id} value={classItem.id}>
+                                  {classItem.name}
+                                </option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={editForm.course_id}
+                              onChange={(event) =>
+                                updateEditForm("course_id", event.target.value)
+                              }
+                              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-400"
+                            >
+                              <option value="">Sem curso</option>
+
+                              {courses.map((course) => (
+                                <option key={course.id} value={course.id}>
+                                  {course.name}
+                                </option>
+                              ))}
+                            </select>
+
+                            <input
+                              value={editForm.average}
+                              onChange={(event) =>
+                                updateEditForm("average", event.target.value)
+                              }
+                              placeholder="Média"
+                              type="number"
+                              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-400"
+                            />
+
+                            <input
+                              value={editForm.attendance}
+                              onChange={(event) =>
+                                updateEditForm("attendance", event.target.value)
+                              }
+                              placeholder="Frequência"
+                              type="number"
+                              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-400"
+                            />
+
+                            <select
+                              value={editForm.status}
+                              onChange={(event) =>
+                                updateEditForm("status", event.target.value)
+                              }
+                              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-400"
+                            >
+                              <option value="Regular">Regular</option>
+                              <option value="Atenção">Atenção</option>
+                              <option value="Excelente">Excelente</option>
+                            </select>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => saveEdit(student.id)}
+                            disabled={savingId === student.id}
+                            className="mt-5 flex items-center gap-2 rounded-2xl bg-blue-500 px-5 py-3 font-semibold text-white transition hover:bg-blue-400 disabled:opacity-50"
+                          >
+                            <Save size={18} />
+                            {savingId === student.id
+                              ? "Salvando..."
+                              : "Salvar alterações"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
