@@ -10,6 +10,44 @@ type ClassItem = {
   name: string;
 };
 
+type ActivityLink = {
+  label: string;
+  url: string;
+};
+
+function normalizeActivityLinks(value: unknown): ActivityLink[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const link = item as {
+        label?: unknown;
+        url?: unknown;
+      };
+
+      const url = typeof link.url === "string" ? link.url.trim() : "";
+
+      if (!url) {
+        return null;
+      }
+
+      return {
+        label:
+          typeof link.label === "string" && link.label.trim()
+            ? link.label.trim()
+            : "Link da atividade",
+        url,
+      };
+    })
+    .filter(Boolean) as ActivityLink[];
+}
+
 export default async function AtividadesPage() {
   const { data: classes, error: classesError } = await supabase
     .from("classes")
@@ -26,6 +64,7 @@ export default async function AtividadesPage() {
       due_date,
       class_id,
       archived,
+      activity_links,
       classes (
         name
       )
@@ -86,6 +125,7 @@ export default async function AtividadesPage() {
         class_id: activity.class_id ? String(activity.class_id) : null,
         class_name: String(classRelation?.name ?? "Sem turma"),
         archived: activity.archived === true,
+        activity_links: normalizeActivityLinks(activity.activity_links),
       };
     }) ?? [];
 

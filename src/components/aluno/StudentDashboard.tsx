@@ -11,13 +11,17 @@ import {
   BookOpen,
   Zap,
   ArrowRight,
-  Sparkles,
   Users,
   ExternalLink,
   Link2,
-  Shuffle,
   UserRound,
   Clock3,
+  ShieldCheck,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Save,
+  X,
 } from "lucide-react";
 
 import StudentSidebar from "./StudentSidebar";
@@ -32,6 +36,7 @@ type StudentSession = {
   studentId: string;
   classId: string;
   studentName: string;
+  mustChangePin?: boolean;
   loggedAt: string;
 };
 
@@ -46,6 +51,8 @@ type StudentData = {
   attendance: number | null;
   status: string | null;
   course_name: string | null;
+  portal_pin: string | null;
+  must_change_pin: boolean | null;
 };
 
 type DashboardStats = {
@@ -167,6 +174,24 @@ function getSafeUrl(value: string | null) {
   return `https://${url}`;
 }
 
+function normalizeText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizePin(value: string) {
+  return normalizeText(value).replace(/\s+/g, "");
+}
+
+function getDefaultStudentPin(name: string) {
+  const firstName = normalizeText(name).split(/\s+/)[0] || "aluno";
+
+  return `${firstName}123`;
+}
+
 export default function StudentDashboard() {
   const router = useRouter();
 
@@ -185,6 +210,16 @@ export default function StudentDashboard() {
     useState<StudentDrawSummary | null>(null);
 
   const [loading, setLoading] = useState(true);
+
+  const [pinFormOpen, setPinFormOpen] = useState(false);
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmNewPin, setConfirmNewPin] = useState("");
+  const [pinSaving, setPinSaving] = useState(false);
+  const [pinMessage, setPinMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
 
   useEffect(() => {
     async function loadStudentInteractions(parsedSession: StudentSession) {
@@ -395,7 +430,9 @@ export default function StudentDashboard() {
             average,
             attendance,
             status,
-            course_name
+            course_name,
+            portal_pin,
+            must_change_pin
           `
           )
           .eq("id", parsedSession.studentId)
@@ -426,7 +463,9 @@ export default function StudentDashboard() {
         return;
       }
 
-      setStudent(studentResponse.data as StudentData);
+      const loadedStudent = studentResponse.data as StudentData;
+
+      setStudent(loadedStudent);
 
       setStats({
         messages: messagesResponse.count || 0,
@@ -447,6 +486,128 @@ export default function StudentDashboard() {
     router.push("/aluno");
   }
 
+  function closePinModal() {
+    setPinFormOpen(false);
+    setCurrentPin("");
+    setNewPin("");
+    setConfirmNewPin("");
+    setPinMessage(null);
+  }
+
+  async function handleChangePin() {
+    setPinMessage(null);
+
+    if (!student || !session) {
+      setPinMessage({
+        type: "error",
+        text: "Sessão do aluno não encontrada.",
+      });
+      return;
+    }
+
+    if (!currentPin.trim() || !newPin.trim() || !confirmNewPin.trim()) {
+      setPinMessage({
+        type: "error",
+        text: "Preencha o PIN atual, o novo PIN e a confirmação.",
+      });
+      return;
+    }
+
+    if (newPin.trim().length < 4) {
+      setPinMessage({
+        type: "error",
+        text: "O novo PIN precisa ter pelo menos 4 caracteres.",
+      });
+      return;
+    }
+
+    if (newPin.trim() !== confirmNewPin.trim()) {
+      setPinMessage({
+        type: "error",
+        text: "A confirmação do novo PIN não confere.",
+      });
+      return;
+    }
+
+    const savedPin = student.portal_pin?.trim() || "";
+    const defaultPin = getDefaultStudentPin(student.name || session.studentName);
+    const normalizedCurrentPin = normalizePin(currentPin);
+    const normalizedDefaultPin = normalizePin(defaultPin);
+
+    const currentPinIsCorrect = savedPin
+      ? currentPin.trim() === savedPin
+      : normalizedCurrentPin === normalizedDefaultPin;
+
+    if (!currentPinIsCorrect) {
+      setPinMessage({
+        type: "error",
+        text: "PIN atual incorreto.",
+      });
+      return;
+    }
+
+    if (normalizePin(newPin) === normalizedDefaultPin) {
+      setPinMessage({
+        type: "error",
+        text: "Escolha um PIN diferente do PIN inicial da escola.",
+      });
+      return;
+    }
+
+    setPinSaving(true);
+
+    const { error } = await supabase
+      .from("students")
+      .update({
+        portal_pin: newPin.trim(),
+        must_change_pin: false,
+        pin_updated_at: new Date().toISOString(),
+      })
+      .eq("id", student.id);
+
+    setPinSaving(false);
+
+    if (error) {
+      setPinMessage({
+        type: "error",
+        text: `Erro ao atualizar PIN: ${error.message}`,
+      });
+      return;
+    }
+
+    const updatedStudent = {
+      ...student,
+      portal_pin: newPin.trim(),
+      must_change_pin: false,
+    };
+
+    const updatedSession = {
+      ...session,
+      mustChangePin: false,
+    };
+
+    setStudent(updatedStudent);
+    setSession(updatedSession);
+
+    sessionStorage.setItem(
+      "melia_student_session",
+      JSON.stringify(updatedSession)
+    );
+
+    setCurrentPin("");
+    setNewPin("");
+    setConfirmNewPin("");
+
+    setPinMessage({
+      type: "success",
+      text: "PIN atualizado com sucesso.",
+    });
+
+    setTimeout(() => {
+      closePinModal();
+    }, 1000);
+  }
+
   const studentName = student?.name || session?.studentName || "Aluno";
 
   const firstName = useMemo(() => {
@@ -457,6 +618,9 @@ export default function StudentDashboard() {
   const averageValue = student?.average ?? 0;
 
   const theme = getStudentTheme(studentName);
+
+  const mustChangePin =
+    student?.must_change_pin === true || session?.mustChangePin === true;
 
   if (loading) {
     return (
@@ -475,60 +639,84 @@ export default function StudentDashboard() {
           studentName={studentName}
           classNameValue={student?.class_name || "Turma"}
           onLogout={handleLogout}
+          onOpenPinSettings={() => setPinFormOpen(true)}
+          mustChangePin={mustChangePin}
         />
 
         <div className="p-4 sm:p-6">
           <div
-            className={`relative overflow-hidden rounded-[32px] border ${theme.border} bg-gradient-to-br ${theme.softGradient} p-6 shadow-2xl ${theme.glow}`}
+            className={`relative overflow-hidden rounded-[28px] border ${theme.border} bg-gradient-to-br ${theme.softGradient} p-5 shadow-2xl ${theme.glow} sm:p-6`}
           >
             <div
-              className={`absolute -right-24 -top-24 h-64 w-64 rounded-full bg-gradient-to-br ${theme.gradient} opacity-20 blur-3xl`}
+              className={`absolute -right-24 -top-24 h-56 w-56 rounded-full bg-gradient-to-br ${theme.gradient} opacity-20 blur-3xl`}
             />
 
             <div
-              className={`absolute -bottom-20 left-10 h-52 w-52 rounded-full bg-gradient-to-br ${theme.gradient} opacity-10 blur-3xl`}
+              className={`absolute -bottom-24 left-10 h-44 w-44 rounded-full bg-gradient-to-br ${theme.gradient} opacity-10 blur-3xl`}
             />
 
-            <div className="relative z-10">
-              <div className="inline-flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-2 text-sm backdrop-blur">
-                <Sparkles className="h-4 w-4" />
-                Portal Premium
+            <div className="relative z-10 flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+              <div className="min-w-0 flex-1">
+                <p className={`text-sm font-semibold ${theme.text}`}>
+                  Olá,
+                </p>
+
+                <h1 className="mt-1 max-w-4xl truncate text-4xl font-black leading-tight text-white sm:text-5xl xl:text-6xl">
+                  {firstName}
+                </h1>
+
+                <p className="mt-3 max-w-2xl text-lg font-bold text-slate-200 sm:text-xl">
+                  Seu espaço digital de aprendizado
+                </p>
+
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+                  Acompanhe frequência, notas, mensagens, atividades,
+                  gamificação, equipes e recursos da sua turma.
+                </p>
+
+                {mustChangePin && (
+                  <div className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-yellow-400/30 bg-yellow-500/10 px-4 py-2 text-sm font-semibold text-yellow-200">
+                    <AlertTriangle className="h-4 w-4" />
+                    Troque seu PIN no ícone de chave, no topo da tela.
+                  </div>
+                )}
               </div>
 
-              <p className={`mt-6 text-sm font-medium ${theme.text}`}>
-                Olá, {firstName}
-              </p>
-
-              <h1 className="mt-3 max-w-3xl text-3xl font-black leading-tight text-white sm:text-4xl xl:text-6xl">
-                Seu espaço digital de aprendizado
-              </h1>
-
-              <p className="mt-5 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
-                Acompanhe frequência, notas, mensagens, atividades,
-                gamificação, equipes e recursos da sua turma em tempo real.
-              </p>
-
-              <div className="mt-8 flex flex-wrap gap-3">
+              <div className="grid shrink-0 gap-3 sm:grid-cols-3 xl:w-[520px]">
                 <Link
                   href="/aluno/gamificacao"
-                  className={`inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r ${theme.gradient} px-5 py-4 text-sm font-bold text-white shadow-xl transition hover:scale-[1.02]`}
+                  className={`group flex min-h-[92px] flex-col justify-between rounded-3xl bg-gradient-to-r ${theme.gradient} p-4 text-white shadow-xl transition hover:scale-[1.02]`}
                 >
-                  Ver meu XP
-                  <ArrowRight className="h-4 w-4" />
+                  <div className="flex items-center justify-between">
+                    <Zap className="h-6 w-6" />
+                    <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+                  </div>
+
+                  <span className="text-sm font-black">Ver meu XP</span>
                 </Link>
 
                 <Link
                   href="/aluno/sorteios"
-                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/10"
+                  className="group flex min-h-[92px] flex-col justify-between rounded-3xl border border-white/10 bg-white/5 p-4 text-white backdrop-blur transition hover:bg-white/10"
                 >
-                  Minha equipe
+                  <div className="flex items-center justify-between">
+                    <Users className="h-6 w-6 text-fuchsia-300" />
+                    <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+                  </div>
+
+                  <span className="text-sm font-black">Minha equipe</span>
                 </Link>
 
                 <Link
                   href="/aluno/botoes"
-                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/10"
+                  className="group flex min-h-[92px] flex-col justify-between rounded-3xl border border-white/10 bg-white/5 p-4 text-white backdrop-blur transition hover:bg-white/10"
                 >
-                  Acessos rápidos
+                  <div className="flex items-center justify-between">
+                    <Link2 className="h-6 w-6 text-cyan-300" />
+                    <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+                  </div>
+
+                  <span className="text-sm font-black">Acessos rápidos</span>
                 </Link>
               </div>
             </div>
@@ -914,6 +1102,134 @@ export default function StudentDashboard() {
             </div>
           </div>
         </div>
+
+        {pinFormOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur">
+            <div className="w-full max-w-lg rounded-[28px] border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`rounded-2xl p-3 ${
+                      mustChangePin
+                        ? "bg-yellow-500/15 text-yellow-300"
+                        : "bg-cyan-500/15 text-cyan-300"
+                    }`}
+                  >
+                    {mustChangePin ? (
+                      <AlertTriangle className="h-5 w-5" />
+                    ) : (
+                      <ShieldCheck className="h-5 w-5" />
+                    )}
+                  </div>
+
+                  <div>
+                    <h2 className="text-xl font-black text-white">
+                      Alterar PIN
+                    </h2>
+
+                    <p className="mt-1 text-sm leading-6 text-slate-400">
+                      {mustChangePin
+                        ? "Você está usando o PIN inicial. Crie um PIN pessoal."
+                        : "Troque seu PIN de acesso quando necessário."}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closePinModal}
+                  className="rounded-2xl border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:bg-white/10"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {pinMessage && (
+                <div
+                  className={`mt-4 flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm ${
+                    pinMessage.type === "success"
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                      : "border-red-500/30 bg-red-500/10 text-red-200"
+                  }`}
+                >
+                  {pinMessage.type === "success" ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : (
+                    <XCircle className="h-5 w-5" />
+                  )}
+
+                  <span className="font-semibold">{pinMessage.text}</span>
+                </div>
+              )}
+
+              <div className="mt-5 space-y-4">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-300">
+                    PIN atual
+                  </label>
+
+                  <input
+                    value={currentPin}
+                    onChange={(event) => setCurrentPin(event.target.value)}
+                    placeholder="Digite seu PIN atual"
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
+                    autoComplete="current-password"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-300">
+                    Novo PIN
+                  </label>
+
+                  <input
+                    value={newPin}
+                    onChange={(event) => setNewPin(event.target.value)}
+                    placeholder="Crie um novo PIN"
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
+                    autoComplete="new-password"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-300">
+                    Confirmar novo PIN
+                  </label>
+
+                  <input
+                    value={confirmNewPin}
+                    onChange={(event) => setConfirmNewPin(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        handleChangePin();
+                      }
+                    }}
+                    placeholder="Repita o novo PIN"
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs leading-relaxed text-slate-500">
+                  O PIN inicial é o primeiro nome + 123. Depois da troca, só o
+                  novo PIN funcionará.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={handleChangePin}
+                  disabled={pinSaving}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Save className="h-4 w-4" />
+                  {pinSaving ? "Salvando..." : "Salvar PIN"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <StudentRealtimeNotifications />
         <StudentMobileNav />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   CheckCircle,
@@ -31,6 +31,14 @@ type Lesson = {
   notes: string | null;
 };
 
+type DiaryLesson = {
+  id: string;
+  class_id: string;
+  lesson_date: string;
+  content: string;
+  notes: string | null;
+};
+
 type Student = {
   id: string;
   name: string;
@@ -54,7 +62,7 @@ type AttendanceRow = {
   status: string | null;
 };
 
-type LessonMode = "planned" | "manual";
+type LessonMode = "planned" | "manual" | "diary";
 
 type CurrentLessonInfo = {
   source: LessonMode;
@@ -159,6 +167,26 @@ function getLessonLabel(lesson: Lesson) {
   }${lesson.title}`;
 }
 
+function getPreviewText(value: string | null | undefined) {
+  const cleanValue = (value || "").trim().replace(/\s+/g, " ");
+
+  if (!cleanValue) {
+    return "Conteúdo não informado";
+  }
+
+  if (cleanValue.length <= 90) {
+    return cleanValue;
+  }
+
+  return `${cleanValue.slice(0, 90)}...`;
+}
+
+function getDiaryLessonLabel(lesson: DiaryLesson) {
+  return `${formatDateToBrazilian(lesson.lesson_date)} — ${getPreviewText(
+    lesson.content
+  )}`;
+}
+
 function getMotivationalMessage(seed: string) {
   const normalizedSeed = normalizeText(seed);
 
@@ -180,6 +208,7 @@ export function AttendanceSmartPanel({
 }) {
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedLessonId, setSelectedLessonId] = useState("");
+  const [selectedDiaryLessonId, setSelectedDiaryLessonId] = useState("");
 
   const [lessonMode, setLessonMode] = useState<LessonMode>("planned");
   const [manualLessonTitle, setManualLessonTitle] = useState("");
@@ -194,6 +223,11 @@ export function AttendanceSmartPanel({
   const [lessonMenuOpen, setLessonMenuOpen] = useState(false);
   const [lessonSearch, setLessonSearch] = useState("");
 
+  const [diaryLessons, setDiaryLessons] = useState<DiaryLesson[]>([]);
+  const [loadingDiaryLessons, setLoadingDiaryLessons] = useState(false);
+  const [diaryLessonMenuOpen, setDiaryLessonMenuOpen] = useState(false);
+  const [diaryLessonSearch, setDiaryLessonSearch] = useState("");
+
   const [records, setRecords] = useState<Record<string, AttendanceRecord>>({});
 
   const selectedClass = classes.find((item) => item.id === selectedClassId);
@@ -202,6 +236,67 @@ export function AttendanceSmartPanel({
     (lesson) =>
       lesson.id === selectedLessonId && lesson.class_id === selectedClassId
   );
+
+  const selectedDiaryLesson = diaryLessons.find(
+    (lesson) =>
+      lesson.id === selectedDiaryLessonId &&
+      lesson.class_id === selectedClassId
+  );
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadDiaryLessons() {
+      setDiaryLessons([]);
+      setSelectedDiaryLessonId("");
+      setDiaryLessonMenuOpen(false);
+      setDiaryLessonSearch("");
+
+      if (!selectedClassId) {
+        return;
+      }
+
+      setLoadingDiaryLessons(true);
+
+      const { data, error } = await supabase
+        .from("lesson_diary")
+        .select(
+          `
+          id,
+          class_id,
+          lesson_date,
+          content,
+          notes
+        `
+        )
+        .eq("class_id", selectedClassId)
+        .order("lesson_date", { ascending: false });
+
+      if (ignore) {
+        return;
+      }
+
+      if (error) {
+        setMessage({
+          type: "error",
+          text: `Erro ao carregar aulas do diário: ${error.message}`,
+        });
+
+        setDiaryLessons([]);
+        setLoadingDiaryLessons(false);
+        return;
+      }
+
+      setDiaryLessons((data as DiaryLesson[] | null) ?? []);
+      setLoadingDiaryLessons(false);
+    }
+
+    loadDiaryLessons();
+
+    return () => {
+      ignore = true;
+    };
+  }, [selectedClassId]);
 
   const classLessons = useMemo(() => {
     return lessons
@@ -235,6 +330,24 @@ export function AttendanceSmartPanel({
       normalizeText(getLessonLabel(lesson)).includes(search)
     );
   }, [classLessons, lessonSearch]);
+
+  const filteredDiaryLessons = useMemo(() => {
+    const search = normalizeText(diaryLessonSearch);
+
+    if (!search) {
+      return diaryLessons;
+    }
+
+    return diaryLessons.filter((lesson) => {
+      const searchableText = [
+        getDiaryLessonLabel(lesson),
+        lesson.content,
+        lesson.notes || "",
+      ].join(" ");
+
+      return normalizeText(searchableText).includes(search);
+    });
+  }, [diaryLessons, diaryLessonSearch]);
 
   const classStudents = useMemo(() => {
     return students.filter((student) => student.class_id === selectedClassId);
@@ -273,8 +386,28 @@ export function AttendanceSmartPanel({
       };
     }
 
+    if (lessonMode === "diary" && selectedDiaryLesson) {
+      const date = formatDateToBrazilian(selectedDiaryLesson.lesson_date);
+
+      return {
+        source: "diary",
+        courseName: "Diário de classe",
+        title: `Aula registrada em ${date}`,
+        content:
+          selectedDiaryLesson.content.trim() || "Conteúdo não informado",
+        notes: selectedDiaryLesson.notes,
+        label: getDiaryLessonLabel(selectedDiaryLesson),
+      };
+    }
+
     return null;
-  }, [lessonMode, selectedLesson, manualLessonTitle, manualLessonContent]);
+  }, [
+    lessonMode,
+    selectedLesson,
+    selectedDiaryLesson,
+    manualLessonTitle,
+    manualLessonContent,
+  ]);
 
   function updateRecord(
     studentId: string,
@@ -310,6 +443,10 @@ export function AttendanceSmartPanel({
   async function getOrCreateLessonDiaryId() {
     if (!selectedClassId || !attendanceDate || !currentLessonInfo) {
       return null;
+    }
+
+    if (currentLessonInfo.source === "diary") {
+      return selectedDiaryLesson?.id ?? null;
     }
 
     const diaryContent =
@@ -439,6 +576,18 @@ export function AttendanceSmartPanel({
       setMessage({
         type: "error",
         text: "Digite o conteúdo da aula eventual/manual.",
+      });
+
+      return;
+    }
+
+    if (
+      lessonMode === "diary" &&
+      (!selectedDiaryLessonId || !selectedDiaryLesson)
+    ) {
+      setMessage({
+        type: "error",
+        text: "Selecione uma aula registrada no diário.",
       });
 
       return;
@@ -664,14 +813,28 @@ _${motivationalMessage}_`;
     setMessage(null);
   }
 
+  function handleSelectDiaryLesson(lesson: DiaryLesson) {
+    setSelectedDiaryLessonId(lesson.id);
+    setAttendanceDate(lesson.lesson_date);
+    setDiaryLessonMenuOpen(false);
+    setDiaryLessonSearch("");
+    setMessage(null);
+  }
+
   function handleLessonModeChange(mode: LessonMode) {
     setLessonMode(mode);
     setMessage(null);
+    setLessonMenuOpen(false);
+    setDiaryLessonMenuOpen(false);
+    setLessonSearch("");
+    setDiaryLessonSearch("");
 
-    if (mode === "manual") {
+    if (mode !== "planned") {
       setSelectedLessonId("");
-      setLessonMenuOpen(false);
-      setLessonSearch("");
+    }
+
+    if (mode !== "diary") {
+      setSelectedDiaryLessonId("");
     }
   }
 
@@ -701,8 +864,11 @@ _${motivationalMessage}_`;
             onChange={(event) => {
               setSelectedClassId(event.target.value);
               setSelectedLessonId("");
+              setSelectedDiaryLessonId("");
               setLessonMenuOpen(false);
+              setDiaryLessonMenuOpen(false);
               setLessonSearch("");
+              setDiaryLessonSearch("");
               setRecords({});
               setMessage(null);
             }}
@@ -718,29 +884,41 @@ _${motivationalMessage}_`;
           </select>
 
           <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-1">
-            <div className="grid grid-cols-2 gap-1">
+            <div className="grid grid-cols-3 gap-1">
               <button
                 type="button"
                 onClick={() => handleLessonModeChange("planned")}
-                className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                className={`rounded-xl px-2 py-2 text-xs font-semibold transition sm:text-sm ${
                   lessonMode === "planned"
                     ? "bg-violet-500 text-white"
                     : "text-slate-400 hover:bg-slate-800"
                 }`}
               >
-                Aula da grade
+                Grade
               </button>
 
               <button
                 type="button"
                 onClick={() => handleLessonModeChange("manual")}
-                className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                className={`rounded-xl px-2 py-2 text-xs font-semibold transition sm:text-sm ${
                   lessonMode === "manual"
                     ? "bg-cyan-500 text-white"
                     : "text-slate-400 hover:bg-slate-800"
                 }`}
               >
-                Aula manual
+                Manual
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleLessonModeChange("diary")}
+                className={`rounded-xl px-2 py-2 text-xs font-semibold transition sm:text-sm ${
+                  lessonMode === "diary"
+                    ? "bg-emerald-500 text-white"
+                    : "text-slate-400 hover:bg-slate-800"
+                }`}
+              >
+                Diário
               </button>
             </div>
           </div>
@@ -833,7 +1011,7 @@ _${motivationalMessage}_`;
               </div>
             )}
           </div>
-        ) : (
+        ) : lessonMode === "manual" ? (
           <div className="mt-4 rounded-3xl border border-cyan-500/20 bg-cyan-500/10 p-5">
             <div className="flex items-start gap-3">
               <div className="rounded-2xl bg-cyan-500/15 p-3 text-cyan-300">
@@ -871,6 +1049,118 @@ _${motivationalMessage}_`;
               />
             </div>
           </div>
+        ) : (
+          <div className="mt-4 rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-5">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-emerald-500/15 p-3 text-emerald-300">
+                <Clipboard size={20} />
+              </div>
+
+              <div>
+                <h3 className="text-lg font-bold text-white">
+                  Aula do diário de classe
+                </h3>
+
+                <p className="mt-1 text-sm text-slate-400">
+                  Escolha uma aula já registrada no diário. A data da chamada
+                  será ajustada automaticamente para a data da aula escolhida.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="relative min-w-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!selectedClassId || loadingDiaryLessons) {
+                      return;
+                    }
+
+                    setDiaryLessonMenuOpen((current) => !current);
+                  }}
+                  disabled={!selectedClassId || loadingDiaryLessons}
+                  className="flex w-full min-w-0 items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-left outline-none transition hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {!selectedClassId
+                      ? "Selecione primeiro uma turma"
+                      : loadingDiaryLessons
+                      ? "Carregando aulas do diário..."
+                      : selectedDiaryLesson
+                      ? getDiaryLessonLabel(selectedDiaryLesson)
+                      : "Selecione uma aula registrada no diário"}
+                  </span>
+
+                  <ChevronDown size={18} className="shrink-0 text-slate-300" />
+                </button>
+
+                {diaryLessonMenuOpen && (
+                  <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
+                    <div className="flex items-center gap-2 border-b border-slate-800 px-3 py-3">
+                      <Search size={17} className="text-slate-400" />
+
+                      <input
+                        value={diaryLessonSearch}
+                        onChange={(event) =>
+                          setDiaryLessonSearch(event.target.value)
+                        }
+                        placeholder="Pesquisar no diário..."
+                        className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+                      />
+                    </div>
+
+                    <div className="max-h-72 overflow-y-auto p-2">
+                      {filteredDiaryLessons.length === 0 ? (
+                        <p className="px-3 py-4 text-sm text-slate-500">
+                          Nenhuma aula do diário encontrada.
+                        </p>
+                      ) : (
+                        filteredDiaryLessons.map((lesson) => (
+                          <button
+                            key={`${lesson.class_id}-${lesson.id}`}
+                            type="button"
+                            onClick={() => handleSelectDiaryLesson(lesson)}
+                            className={`w-full rounded-xl px-3 py-3 text-left transition hover:bg-emerald-500/10 ${
+                              lesson.id === selectedDiaryLessonId
+                                ? "bg-emerald-500/15 text-emerald-200"
+                                : "text-slate-200"
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="shrink-0 rounded-lg bg-emerald-500/10 px-2 py-1 text-[11px] font-semibold text-emerald-300">
+                                {formatDateToBrazilian(lesson.lesson_date)}
+                              </span>
+
+                              <span className="min-w-0 truncate text-sm font-semibold">
+                                {getPreviewText(lesson.content)}
+                              </span>
+                            </div>
+
+                            {lesson.notes && (
+                              <p className="mt-1 line-clamp-1 text-xs text-slate-500">
+                                {lesson.notes}
+                              </p>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {selectedClassId &&
+                !loadingDiaryLessons &&
+                diaryLessons.length === 0 && (
+                  <div className="mt-4 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                    Nenhuma aula registrada no diário para esta turma. Registre
+                    uma aula na aba <strong>Diário</strong> ou use{" "}
+                    <strong>Aula manual</strong>.
+                  </div>
+                )}
+            </div>
+          </div>
         )}
 
         {currentLessonInfo && (
@@ -883,6 +1173,8 @@ _${motivationalMessage}_`;
               <span className="rounded-xl bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300">
                 {currentLessonInfo.source === "manual"
                   ? "Manual"
+                  : currentLessonInfo.source === "diary"
+                  ? "Diário"
                   : "Grade curricular"}
               </span>
             </div>
@@ -1077,7 +1369,7 @@ function StatusButton({
 }: {
   active: boolean;
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   color: "green" | "red" | "yellow";
   onClick: () => void;
 }) {
@@ -1085,8 +1377,8 @@ function StatusButton({
     ? color === "green"
       ? "bg-emerald-500 text-white border-emerald-400"
       : color === "red"
-        ? "bg-red-500 text-white border-red-400"
-        : "bg-yellow-500 text-black border-yellow-400"
+      ? "bg-red-500 text-white border-red-400"
+      : "bg-yellow-500 text-black border-yellow-400"
     : "bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800";
 
   return (

@@ -9,6 +9,7 @@ import {
   Trophy,
   BookOpen,
   Zap,
+  Gamepad2,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
@@ -36,6 +37,11 @@ const items = [
     href: "/aluno/atividades",
     icon: BookOpen,
     label: "Tarefas",
+  },
+  {
+    href: "/aluno/quiz",
+    icon: Gamepad2,
+    label: "Quiz",
   },
   {
     href: "/aluno/notas",
@@ -134,8 +140,8 @@ export default function StudentMobileNav() {
   }, [studentId]);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-800 bg-slate-950/95 px-2 py-2 backdrop-blur xl:hidden">
-      <div className="mx-auto grid max-w-xl grid-cols-5 gap-2">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-800 bg-slate-950/95 px-1.5 py-2 backdrop-blur xl:hidden">
+      <div className="mx-auto grid max-w-2xl grid-cols-6 gap-1.5">
         {items.map((item) => {
           const Icon = item.icon;
           const active = pathname === item.href;
@@ -147,7 +153,7 @@ export default function StudentMobileNav() {
             <Link
               key={item.href}
               href={item.href}
-              className={`group relative flex flex-col items-center justify-center overflow-hidden rounded-3xl px-2 py-3 transition-all duration-300 ${
+              className={`group relative flex flex-col items-center justify-center overflow-hidden rounded-2xl px-1 py-2.5 transition-all duration-300 ${
                 active
                   ? "bg-gradient-to-br from-cyan-500/20 to-blue-500/20 text-cyan-300 shadow-lg shadow-cyan-500/10"
                   : "text-slate-400 hover:bg-slate-900 hover:text-white"
@@ -158,7 +164,7 @@ export default function StudentMobileNav() {
               )}
 
               {showMessageBadge && (
-                <div className="absolute right-3 top-2 z-20 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-black text-white shadow-lg shadow-red-500/30">
+                <div className="absolute right-1 top-1 z-20 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-black text-white shadow-lg shadow-red-500/30">
                   {unreadMessages > 99 ? "99+" : unreadMessages}
                 </div>
               )}
@@ -172,7 +178,7 @@ export default function StudentMobileNav() {
               </div>
 
               <span
-                className={`relative z-10 mt-1 text-[11px] font-semibold transition ${
+                className={`relative z-10 mt-1 text-[10px] font-semibold transition ${
                   active ? "text-cyan-300" : ""
                 }`}
               >
@@ -180,7 +186,7 @@ export default function StudentMobileNav() {
               </span>
 
               {active && (
-                <div className="relative z-10 mt-2 h-1 w-8 rounded-full bg-cyan-400" />
+                <div className="relative z-10 mt-1.5 h-1 w-6 rounded-full bg-cyan-400" />
               )}
             </Link>
           );

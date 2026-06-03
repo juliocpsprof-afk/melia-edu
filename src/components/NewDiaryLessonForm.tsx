@@ -142,7 +142,8 @@ export function NewDiaryLessonForm({
           type="date"
           value={lessonDate}
           onChange={(event) => setLessonDate(event.target.value)}
-          className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+          style={{ colorScheme: "dark" }}
+          className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-violet-400 [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:invert"
         />
 
         {selectedClass && (

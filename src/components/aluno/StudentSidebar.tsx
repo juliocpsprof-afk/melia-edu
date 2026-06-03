@@ -12,6 +12,7 @@ import {
   Users,
   Link2,
   Zap,
+  Gamepad2,
 } from "lucide-react";
 
 const menuItems = [
@@ -20,6 +21,7 @@ const menuItems = [
   { href: "/aluno/frequencia", icon: CalendarCheck, label: "Frequência" },
   { href: "/aluno/notas", icon: Trophy, label: "Notas" },
   { href: "/aluno/atividades", icon: BookOpen, label: "Atividades" },
+  { href: "/aluno/quiz", icon: Gamepad2, label: "Quiz" },
   { href: "/aluno/sorteios", icon: Users, label: "Sorteios" },
   { href: "/aluno/gamificacao", icon: Zap, label: "Gamificação" },
   { href: "/aluno/botoes", icon: Link2, label: "Links" },
@@ -44,7 +46,7 @@ export default function StudentSidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 p-4">
+      <nav className="flex-1 overflow-y-auto p-4">
         <div className="space-y-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
@@ -62,7 +64,9 @@ export default function StudentSidebar() {
               >
                 <div
                   className={`flex h-12 w-12 items-center justify-center rounded-2xl transition ${
-                    active ? "bg-cyan-500/20" : "bg-slate-900 group-hover:bg-cyan-500/20"
+                    active
+                      ? "bg-cyan-500/20"
+                      : "bg-slate-900 group-hover:bg-cyan-500/20"
                   }`}
                 >
                   <Icon className="h-5 w-5 text-cyan-300" />

@@ -9,7 +9,9 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  ExternalLink,
   FileText,
+  Link2,
   Sparkles,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -18,6 +20,11 @@ type StudentSession = {
   studentId: string;
   classId: string;
   studentName: string;
+};
+
+type ActivityLink = {
+  label: string;
+  url: string;
 };
 
 type Activity = {
@@ -29,6 +36,7 @@ type Activity = {
   due_date: string | null;
   archived?: boolean | null;
   created_at?: string | null;
+  activity_links?: ActivityLink[] | null;
 };
 
 type Submission = {
@@ -98,6 +106,53 @@ function isDelivered(status: string | null) {
     normalizedStatus === "corrigida" ||
     normalizedStatus === "corrigido"
   );
+}
+
+function getSafeUrl(value: string) {
+  const url = value.trim();
+
+  if (!url) {
+    return "#";
+  }
+
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
+  }
+
+  return `https://${url}`;
+}
+
+function normalizeActivityLinks(value: unknown): ActivityLink[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const link = item as {
+        label?: unknown;
+        url?: unknown;
+      };
+
+      const url = typeof link.url === "string" ? link.url.trim() : "";
+
+      if (!url) {
+        return null;
+      }
+
+      return {
+        label:
+          typeof link.label === "string" && link.label.trim()
+            ? link.label.trim()
+            : "Link da atividade",
+        url,
+      };
+    })
+    .filter(Boolean) as ActivityLink[];
 }
 
 function getActivityStatus({
@@ -189,6 +244,74 @@ function getActivityStatus({
   };
 }
 
+function TextWithClickableLinks({ text }: { text: string }) {
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+  const parts = text.split(urlRegex);
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        const isUrl = urlRegex.test(part);
+        urlRegex.lastIndex = 0;
+
+        if (!isUrl) {
+          return <span key={`${part}-${index}`}>{part}</span>;
+        }
+
+        const cleanPart = part.replace(/[),.;!?]+$/, "");
+        const trailing = part.slice(cleanPart.length);
+
+        return (
+          <span key={`${part}-${index}`}>
+            <a
+              href={getSafeUrl(cleanPart)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-cyan-300 underline decoration-cyan-300/40 underline-offset-4 transition hover:text-cyan-200"
+            >
+              {cleanPart}
+            </a>
+            {trailing}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function ActivityLinksList({ links }: { links: ActivityLink[] }) {
+  if (links.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-5 rounded-3xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+      <div className="mb-3 flex items-center gap-2 text-sm font-bold text-cyan-200">
+        <Link2 className="h-4 w-4" />
+        Links da atividade
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        {links.map((link, index) => (
+          <a
+            key={`${link.url}-${index}`}
+            href={getSafeUrl(link.url)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group flex items-center justify-between gap-3 rounded-2xl border border-cyan-500/20 bg-slate-950/60 px-4 py-3 text-sm transition hover:border-cyan-300/50 hover:bg-cyan-500/15"
+          >
+            <span className="min-w-0 truncate font-bold text-cyan-100">
+              {link.label}
+            </span>
+
+            <ExternalLink className="h-4 w-4 shrink-0 text-cyan-300 transition group-hover:translate-x-0.5" />
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function StudentActivities() {
   const router = useRouter();
 
@@ -241,6 +364,7 @@ export default function StudentActivities() {
           start_date:
             activity.start_date || activity.created_at?.slice(0, 10) || null,
           due_date: activity.due_date || null,
+          activity_links: normalizeActivityLinks(activity.activity_links),
         }));
 
       setActivities(visibleActivities);
@@ -306,7 +430,7 @@ export default function StudentActivities() {
             <h1 className="text-2xl font-black sm:text-3xl">Atividades</h1>
 
             <p className="mt-1 max-w-md text-sm text-slate-400">
-              Acompanhe suas tarefas, data de início, prazo de entrega e
+              Acompanhe suas tarefas, data de início, prazo de entrega, links e
               lembretes importantes.
             </p>
           </div>
@@ -373,12 +497,9 @@ export default function StudentActivities() {
                             {activity.title || "Atividade sem título"}
                           </p>
 
-                          <p className="mt-1 text-sm text-orange-200">
-                            {status.label}
-                          </p>
-
-                          <p className="mt-1 text-xs text-slate-400">
-                            Entrega: {formatDate(activity.due_date)}
+                          <p className="mt-1 text-xs text-orange-200">
+                            {status.label} • Entrega:{" "}
+                            {formatDate(activity.due_date)}
                           </p>
                         </div>
                       </div>
@@ -391,89 +512,73 @@ export default function StudentActivities() {
         )}
 
         {activities.length === 0 ? (
-          <div className="rounded-[28px] border border-slate-800 bg-slate-900/70 p-8 text-center text-slate-300 sm:rounded-[32px] sm:p-10">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[24px] bg-cyan-500/10 text-cyan-300">
-              <FileText className="h-8 w-8" />
-            </div>
+          <div className="rounded-[32px] border border-slate-800 bg-slate-900/70 p-8 text-center">
+            <FileText className="mx-auto h-12 w-12 text-slate-500" />
 
-            <h2 className="mt-5 text-2xl font-black text-white">
+            <h2 className="mt-4 text-2xl font-black text-white">
               Nenhuma atividade disponível
             </h2>
 
-            <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-400">
-              Quando o professor cadastrar atividades para sua turma, elas
+            <p className="mt-2 text-sm text-slate-400">
+              Quando o professor criar atividades para sua turma, elas
               aparecerão aqui.
             </p>
           </div>
         ) : (
-          <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
+          <div className="grid gap-5">
             {activities.map((activity) => {
               const delivered = deliveredActivityIds.includes(activity.id);
-              const status = getActivityStatus({ activity, delivered });
+
+              const status = getActivityStatus({
+                activity,
+                delivered,
+              });
+
               const StatusIcon = status.icon;
+              const links = normalizeActivityLinks(activity.activity_links);
 
               return (
                 <article
                   key={activity.id}
-                  className={`group rounded-[28px] border p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl sm:rounded-[32px] sm:p-6 ${status.cardClass}`}
+                  className={`rounded-[32px] border p-5 shadow-xl transition hover:-translate-y-1 sm:p-6 ${status.cardClass}`}
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
-                      <div
-                        className={`inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-xs font-bold ${status.badgeClass}`}
-                      >
-                        <StatusIcon className="h-4 w-4" />
-                        {status.label}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold ${status.badgeClass}`}
+                        >
+                          <StatusIcon className="h-4 w-4" />
+                          {status.label}
+                        </span>
+
+                        <span className="rounded-full border border-white/10 bg-slate-950/50 px-3 py-1 text-xs font-semibold text-slate-300">
+                          Início: {formatDate(activity.start_date)}
+                        </span>
+
+                        <span className="rounded-full border border-white/10 bg-slate-950/50 px-3 py-1 text-xs font-semibold text-slate-300">
+                          Entrega: {formatDate(activity.due_date)}
+                        </span>
                       </div>
 
                       <h2 className="mt-4 text-2xl font-black text-white">
                         {activity.title || "Atividade sem título"}
                       </h2>
 
-                      <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">
-                        {activity.description || "Sem descrição cadastrada."}
+                      <p className="mt-2 text-sm leading-6 text-slate-300">
+                        {status.description}
                       </p>
-                    </div>
 
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[22px] bg-white/10 text-white">
-                      <FileText className="h-7 w-7" />
-                    </div>
-                  </div>
-
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-cyan-300">
-                        <CalendarDays className="h-4 w-4" />
-                        Início
+                      <div className="mt-4 whitespace-pre-wrap rounded-3xl border border-white/10 bg-slate-950/50 p-4 text-sm leading-7 text-slate-300">
+                        {activity.description ? (
+                          <TextWithClickableLinks text={activity.description} />
+                        ) : (
+                          "Sem descrição."
+                        )}
                       </div>
 
-                      <p className="mt-2 text-lg font-black text-white">
-                        {formatDate(activity.start_date)}
-                      </p>
+                      <ActivityLinksList links={links} />
                     </div>
-
-                    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-orange-300">
-                        <Clock3 className="h-4 w-4" />
-                        Entrega
-                      </div>
-
-                      <p className="mt-2 text-lg font-black text-white">
-                        {formatDate(activity.due_date)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-                    <p className="text-sm leading-6 text-slate-300">
-                      {status.description}
-                    </p>
-                  </div>
-
-                  <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs leading-5 text-slate-400">
-                    {delivered
-                      ? "Você já entregou essa atividade."
-                      : "Acompanhe o prazo combinado com o professor. Caso seja necessário enviar respostas ou arquivos, siga a orientação dada em sala ou nos canais informados pelo professor."}
                   </div>
                 </article>
               );

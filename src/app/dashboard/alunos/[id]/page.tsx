@@ -2,8 +2,10 @@ import {
   AlertTriangle,
   BookOpen,
   CalendarDays,
+  KeyRound,
   Mail,
   Phone,
+  ShieldCheck,
   TrendingUp,
   UserRound,
 } from "lucide-react";
@@ -15,12 +17,27 @@ import { AIPedagogicalReport } from "../../../../components/AIPedagogicalReport"
 import { PedagogicalInterventionPlan } from "../../../../components/PedagogicalInterventionPlan";
 import { NewGoalForm } from "../../../../components/NewGoalForm";
 import { CompleteGoalButton } from "../../../../components/CompleteGoalButton";
+import { ResetStudentPinButton } from "../../../../components/ResetStudentPinButton";
 
 type Props = {
   params: Promise<{
     id: string;
   }>;
 };
+
+function normalizeText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function getDefaultStudentPin(name: string) {
+  const firstName = normalizeText(name).split(/\s+/)[0] || "aluno";
+
+  return `${firstName}123`;
+}
 
 export default async function StudentProfilePage({ params }: Props) {
   const { id } = await params;
@@ -86,6 +103,12 @@ export default async function StudentProfilePage({ params }: Props) {
     (item: any) => item.status === "Atraso"
   ).length;
 
+  const defaultPin = getDefaultStudentPin(student.name || "Aluno");
+  const hasPersonalPin = student.must_change_pin === false;
+  const currentPinStatus = hasPersonalPin
+    ? "PIN pessoal criado"
+    : "Usando PIN inicial ou resetado";
+
   return (
     <>
       <header className="border-b border-slate-800 bg-slate-950/40 px-6 py-5">
@@ -98,10 +121,34 @@ export default async function StudentProfilePage({ params }: Props) {
             <div>
               <h1 className="text-3xl font-bold">{student.name}</h1>
               <p className="mt-1 text-slate-400">{student.class_name}</p>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
+                    hasPersonalPin
+                      ? "bg-emerald-500/10 text-emerald-300"
+                      : "bg-yellow-500/10 text-yellow-300"
+                  }`}
+                >
+                  {hasPersonalPin ? (
+                    <ShieldCheck size={14} />
+                  ) : (
+                    <KeyRound size={14} />
+                  )}
+
+                  {currentPinStatus}
+                </span>
+
+                {!hasPersonalPin && (
+                  <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-300">
+                    PIN temporário: {defaultPin}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <ExportStudentPdfButton
               studentName={student.name}
               className={student.class_name}
@@ -109,6 +156,11 @@ export default async function StudentProfilePage({ params }: Props) {
               grades={grades}
               attendance={attendance}
               observations={observations}
+            />
+
+            <ResetStudentPinButton
+              studentId={student.id}
+              studentName={student.name}
             />
 
             <button className="flex items-center gap-2 rounded-2xl border border-slate-700 px-4 py-3 text-slate-300 transition hover:bg-white/5">
@@ -125,11 +177,63 @@ export default async function StudentProfilePage({ params }: Props) {
       </header>
 
       <section id="student-profile-content" className="p-6">
+        <div className="mb-8 rounded-3xl border border-cyan-500/20 bg-cyan-500/10 p-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="rounded-2xl bg-cyan-500/15 p-3 text-cyan-300">
+                <KeyRound size={24} />
+              </div>
+
+              <div>
+                <h2 className="text-2xl font-bold text-white">
+                  Acesso ao Portal do Aluno
+                </h2>
+
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+                  O PIN inicial segue o padrão da escola: primeiro nome do aluno
+                  em letras minúsculas seguido de <strong>123</strong>. O aluno
+                  pode trocar esse PIN dentro do portal. Se esquecer, o professor
+                  pode resetar por aqui.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                PIN padrão/reset
+              </p>
+
+              <p className="mt-1 text-xl font-black text-cyan-200">
+                {defaultPin}
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-          <InfoCard title="Média" value={average.toFixed(1)} icon={<TrendingUp />} />
-          <InfoCard title="Presenças" value={String(presencas)} icon={<CalendarDays />} />
-          <InfoCard title="Faltas" value={String(faltas)} icon={<AlertTriangle />} />
-          <InfoCard title="Atrasos" value={String(atrasos)} icon={<UserRound />} />
+          <InfoCard
+            title="Média"
+            value={average.toFixed(1)}
+            icon={<TrendingUp />}
+          />
+
+          <InfoCard
+            title="Presenças"
+            value={String(presencas)}
+            icon={<CalendarDays />}
+          />
+
+          <InfoCard
+            title="Faltas"
+            value={String(faltas)}
+            icon={<AlertTriangle />}
+          />
+
+          <InfoCard
+            title="Atrasos"
+            value={String(atrasos)}
+            icon={<UserRound />}
+          />
         </div>
 
         <div className="mt-8">
@@ -162,35 +266,39 @@ export default async function StudentProfilePage({ params }: Props) {
             <h2 className="text-2xl font-bold">Histórico de notas</h2>
 
             <div className="mt-6 space-y-4">
-              {grades.map((grade: any, index: number) => (
-                <div
-                  key={index}
-                  className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold">{grade.title}</p>
-                      <p className="text-sm text-slate-500">{grade.date}</p>
+              {grades.length === 0 ? (
+                <p className="text-slate-500">Nenhuma nota registrada.</p>
+              ) : (
+                grades.map((grade: any, index: number) => (
+                  <div
+                    key={index}
+                    className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold">{grade.title}</p>
+                        <p className="text-sm text-slate-500">{grade.date}</p>
+                      </div>
+
+                      <div className="rounded-xl bg-violet-500/10 px-4 py-2 text-violet-300">
+                        {grade.score}
+                      </div>
                     </div>
 
-                    <div className="rounded-xl bg-violet-500/10 px-4 py-2 text-violet-300">
-                      {grade.score}
-                    </div>
+                    {grade.feedback && (
+                      <div className="mt-4 rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4">
+                        <p className="text-sm font-medium text-violet-300">
+                          Feedback pedagógico
+                        </p>
+
+                        <p className="mt-2 leading-7 text-slate-300">
+                          {grade.feedback}
+                        </p>
+                      </div>
+                    )}
                   </div>
-
-                  {grade.feedback && (
-                    <div className="mt-4 rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4">
-                      <p className="text-sm font-medium text-violet-300">
-                        Feedback pedagógico
-                      </p>
-
-                      <p className="mt-2 leading-7 text-slate-300">
-                        {grade.feedback}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
@@ -198,19 +306,25 @@ export default async function StudentProfilePage({ params }: Props) {
             <h2 className="text-2xl font-bold">Histórico de frequência</h2>
 
             <div className="mt-6 space-y-4">
-              {attendance.map((item: any, index: number) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950/40 p-4"
-                >
-                  <div className="flex items-center gap-3">
-                    <BookOpen size={18} className="text-violet-400" />
-                    <span>{item.status}</span>
-                  </div>
+              {attendance.length === 0 ? (
+                <p className="text-slate-500">
+                  Nenhum registro de frequência.
+                </p>
+              ) : (
+                attendance.map((item: any, index: number) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950/40 p-4"
+                  >
+                    <div className="flex items-center gap-3">
+                      <BookOpen size={18} className="text-violet-400" />
+                      <span>{item.status}</span>
+                    </div>
 
-                  <span className="text-sm text-slate-500">{item.date}</span>
-                </div>
-              ))}
+                    <span className="text-sm text-slate-500">{item.date}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
@@ -232,7 +346,9 @@ export default async function StudentProfilePage({ params }: Props) {
                       </span>
 
                       <span className="text-sm text-slate-500">
-                        {new Date(observation.created_at).toLocaleDateString("pt-BR")}
+                        {new Date(observation.created_at).toLocaleDateString(
+                          "pt-BR"
+                        )}
                       </span>
                     </div>
 

@@ -4,8 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Archive,
   CheckCircle,
+  CheckSquare,
   History,
+  ListChecks,
+  RefreshCw,
+  Search,
   Shuffle,
+  Square,
   Trash2,
   Users,
   UserRound,
@@ -100,11 +105,32 @@ function getStatusLabel(status: string | null) {
   return status === "archived" ? "Arquivado" : "Ativo";
 }
 
+function normalizeText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function getTeamSizeLabel(size: string) {
+  const numericSize = Number(size);
+
+  if (numericSize === 2) return "Duplas";
+  if (numericSize === 3) return "Trios";
+  if (numericSize > 3) return `Equipes de ${numericSize}`;
+
+  return "Equipes";
+}
+
 export function InteractionDrawTool({ classes, students, activities }: Props) {
   const [drawType, setDrawType] = useState<"student" | "teams">("student");
   const [classId, setClassId] = useState("all");
   const [teamSize, setTeamSize] = useState("2");
   const [activityId, setActivityId] = useState("none");
+
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [studentSearch, setStudentSearch] = useState("");
 
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [teams, setTeams] = useState<Student[][]>([]);
@@ -125,6 +151,30 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
 
     return students.filter((student) => student.class_id === classId);
   }, [students, classId]);
+
+  const selectedStudentIdSet = useMemo(() => {
+    return new Set(selectedStudentIds);
+  }, [selectedStudentIds]);
+
+  const participatingStudents = useMemo(() => {
+    return filteredStudents.filter((student) =>
+      selectedStudentIdSet.has(student.id)
+    );
+  }, [filteredStudents, selectedStudentIdSet]);
+
+  const visibleStudents = useMemo(() => {
+    const search = normalizeText(studentSearch);
+
+    if (!search) {
+      return filteredStudents;
+    }
+
+    return filteredStudents.filter((student) => {
+      const searchableText = [student.name, student.class_name ?? ""].join(" ");
+
+      return normalizeText(searchableText).includes(search);
+    });
+  }, [filteredStudents, studentSearch]);
 
   const selectedClass = classes.find((item) => item.id === classId);
 
@@ -229,14 +279,42 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
     setActivityId("none");
   }, [classId]);
 
+  useEffect(() => {
+    setSelectedStudentIds(filteredStudents.map((student) => student.id));
+    setStudentSearch("");
+    setSelectedStudent(null);
+    setTeams([]);
+    setMessage(null);
+  }, [filteredStudents]);
+
+  function markAllStudents() {
+    setSelectedStudentIds(filteredStudents.map((student) => student.id));
+  }
+
+  function unmarkAllStudents() {
+    setSelectedStudentIds([]);
+  }
+
+  function toggleStudent(studentId: string) {
+    setSelectedStudentIds((current) => {
+      if (current.includes(studentId)) {
+        return current.filter((id) => id !== studentId);
+      }
+
+      return [...current, studentId];
+    });
+  }
+
   async function saveDrawResult({
     type,
     selected,
     generatedTeams,
+    teamSizeNumber,
   }: {
     type: "student" | "teams";
     selected?: Student;
     generatedTeams?: Student[][];
+    teamSizeNumber?: number;
   }) {
     const { data: draw, error: drawError } = await supabase
       .from("interaction_draws")
@@ -246,7 +324,7 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
         class_name: classId === "all" ? "Todas as turmas" : selectedClass?.name,
         activity_id: selectedActivity?.id || null,
         activity_title: selectedActivity?.title || null,
-        team_size: type === "teams" ? Number(teamSize) : null,
+        team_size: type === "teams" ? teamSizeNumber ?? Number(teamSize) : null,
         status: "active",
         archived_at: null,
       })
@@ -282,7 +360,9 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
         }))
       );
 
-      const { error } = await supabase.from("interaction_draw_results").insert(rows);
+      const { error } = await supabase
+        .from("interaction_draw_results")
+        .insert(rows);
 
       if (error) throw error;
     }
@@ -301,10 +381,18 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
       return;
     }
 
+    if (participatingStudents.length === 0) {
+      setMessage({
+        type: "error",
+        text: "Marque pelo menos um aluno para participar do sorteio.",
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const shuffled = shuffleArray(filteredStudents);
+      const shuffled = shuffleArray(participatingStudents);
 
       if (drawType === "student") {
         const student = shuffled[0];
@@ -321,10 +409,19 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
       if (drawType === "teams") {
         const size = Number(teamSize);
 
-        if (!size || size < 2) {
+        if (!Number.isInteger(size) || size < 2) {
           setMessage({
             type: "error",
-            text: "Escolha um tamanho de equipe válido.",
+            text: "Digite um tamanho de equipe válido. Use 2 ou mais.",
+          });
+          setLoading(false);
+          return;
+        }
+
+        if (participatingStudents.length < 2) {
+          setMessage({
+            type: "error",
+            text: "Para sortear equipes, marque pelo menos 2 alunos.",
           });
           setLoading(false);
           return;
@@ -342,14 +439,15 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
         await saveDrawResult({
           type: "teams",
           generatedTeams,
+          teamSizeNumber: size,
         });
       }
 
       setMessage({
         type: "success",
         text: selectedActivity
-          ? `Sorteio realizado e vinculado à atividade: ${selectedActivity.title}.`
-          : "Sorteio realizado sem atividade vinculada.",
+          ? `Sorteio realizado com ${participatingStudents.length} participante(s) e vinculado à atividade: ${selectedActivity.title}.`
+          : `Sorteio realizado com ${participatingStudents.length} participante(s), sem atividade vinculada.`,
       });
     } catch (error) {
       const errorMessage =
@@ -461,8 +559,8 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
             <div>
               <h2 className="text-2xl font-bold">Ferramenta de sorteio</h2>
               <p className="mt-1 text-slate-400">
-                Escolha o tipo de sorteio, filtre por turma e vincule a uma
-                atividade quando necessário.
+                Escolha o tipo de sorteio, filtre por turma, marque quem vai
+                participar e vincule a uma atividade quando necessário.
               </p>
             </div>
           </div>
@@ -488,9 +586,12 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             <select
               value={drawType}
-              onChange={(event) =>
-                setDrawType(event.target.value as "student" | "teams")
-              }
+              onChange={(event) => {
+                setDrawType(event.target.value as "student" | "teams");
+                setSelectedStudent(null);
+                setTeams([]);
+                setMessage(null);
+              }}
               className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
             >
               <option value="student">Sortear um aluno</option>
@@ -512,25 +613,58 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
             </select>
 
             {drawType === "teams" && (
-              <select
-                value={teamSize}
-                onChange={(event) => setTeamSize(event.target.value)}
-                className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
-              >
-                <option value="2">Duplas</option>
-                <option value="3">Trios</option>
-                <option value="4">Equipes de 4</option>
-                <option value="5">Equipes de 5</option>
-                <option value="6">Equipes de 6</option>
-              </select>
+              <div className="rounded-3xl border border-slate-800 bg-slate-950/40 p-4 md:col-span-2">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="flex-1">
+                    <label className="mb-2 block text-sm font-semibold text-slate-300">
+                      Quantidade de alunos por equipe
+                    </label>
+
+                    <input
+                      type="number"
+                      min={2}
+                      step={1}
+                      value={teamSize}
+                      onChange={(event) => setTeamSize(event.target.value)}
+                      placeholder="Ex.: 2, 3, 4, 5, 10..."
+                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { label: "Dupla", value: "2" },
+                      { label: "Trio", value: "3" },
+                      { label: "4", value: "4" },
+                      { label: "6", value: "6" },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setTeamSize(option.value)}
+                        className={`rounded-2xl border px-4 py-3 text-sm font-bold transition ${
+                          teamSize === option.value
+                            ? "border-violet-400 bg-violet-500 text-white"
+                            : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <p className="mt-3 text-sm text-slate-500">
+                  Você pode digitar qualquer tamanho de equipe. Se sobrarem
+                  alunos, a última equipe ficará com menos participantes.
+                </p>
+              </div>
             )}
 
             <select
               value={activityId}
               onChange={(event) => setActivityId(event.target.value)}
-              className={`rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400 ${
-                drawType !== "teams" ? "md:col-span-2" : ""
-              }`}
+              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400 md:col-span-2"
             >
               <option value="none">Sem atividade vinculada</option>
 
@@ -543,20 +677,140 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
             </select>
           </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-slate-300">
-              Alunos disponíveis: <strong>{filteredStudents.length}</strong>
+          <div className="mt-6 rounded-3xl border border-slate-800 bg-slate-950/40 p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex items-center gap-3">
+                  <div className="rounded-2xl bg-cyan-500/15 p-3 text-cyan-300">
+                    <ListChecks size={22} />
+                  </div>
+
+                  <div>
+                    <h3 className="text-xl font-bold text-white">
+                      Alunos participantes
+                    </h3>
+
+                    <p className="mt-1 text-sm text-slate-400">
+                      Todos aparecem marcados por padrão. Desmarque quem não
+                      deve participar do sorteio.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                <button
+                  type="button"
+                  onClick={markAllStudents}
+                  disabled={filteredStudents.length === 0}
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-400 disabled:opacity-50"
+                >
+                  <CheckSquare size={16} />
+                  Marcar todos
+                </button>
+
+                <button
+                  type="button"
+                  onClick={unmarkAllStudents}
+                  disabled={filteredStudents.length === 0}
+                  className="flex items-center justify-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-200 transition hover:bg-red-500/20 disabled:opacity-50"
+                >
+                  <Square size={16} />
+                  Desmarcar
+                </button>
+              </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-slate-300">
-              Atividade:{" "}
-              <strong>
-                {selectedActivity ? selectedActivity.title : "Sem vínculo"}
-              </strong>
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-slate-300">
+                Alunos da seleção:{" "}
+                <strong className="text-white">{filteredStudents.length}</strong>
+              </div>
+
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-emerald-200">
+                Participando:{" "}
+                <strong className="text-white">
+                  {participatingStudents.length}
+                </strong>
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-slate-300">
+                Atividade:{" "}
+                <strong className="text-white">
+                  {selectedActivity ? selectedActivity.title : "Sem vínculo"}
+                </strong>
+              </div>
             </div>
+
+            <div className="mt-5 flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3">
+              <Search size={18} className="text-slate-500" />
+
+              <input
+                value={studentSearch}
+                onChange={(event) => setStudentSearch(event.target.value)}
+                placeholder="Pesquisar aluno..."
+                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+              />
+            </div>
+
+            {filteredStudents.length === 0 ? (
+              <div className="mt-4 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                Nenhum aluno encontrado para esta seleção.
+              </div>
+            ) : (
+              <div className="mt-4 max-h-80 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/40 p-2">
+                <div className="grid gap-2 md:grid-cols-2">
+                  {visibleStudents.map((student) => {
+                    const checked = selectedStudentIdSet.has(student.id);
+
+                    return (
+                      <button
+                        key={student.id}
+                        type="button"
+                        onClick={() => toggleStudent(student.id)}
+                        className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-left transition ${
+                          checked
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                            : "border-slate-800 bg-slate-900/60 text-slate-400 hover:bg-slate-800"
+                        }`}
+                      >
+                        <div
+                          className={`shrink-0 ${
+                            checked ? "text-emerald-300" : "text-slate-500"
+                          }`}
+                        >
+                          {checked ? (
+                            <CheckSquare size={20} />
+                          ) : (
+                            <Square size={20} />
+                          )}
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold">
+                            {student.name}
+                          </p>
+
+                          <p className="truncate text-xs opacity-70">
+                            {student.class_name ?? "Sem turma"}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {visibleStudents.length === 0 && (
+                  <p className="p-4 text-sm text-slate-500">
+                    Nenhum aluno encontrado na pesquisa.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <button
+            type="button"
             onClick={handleDraw}
             disabled={loading}
             className="mt-6 flex items-center gap-3 rounded-2xl bg-violet-500 px-6 py-3 font-semibold transition hover:bg-violet-400 disabled:opacity-50"
@@ -677,7 +931,7 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
                         <h3 className="font-semibold">
                           {draw.draw_type === "student"
                             ? "Sorteio de aluno"
-                            : `Equipes de ${draw.team_size}`}
+                            : getTeamSizeLabel(String(draw.team_size ?? ""))}
                         </h3>
 
                         <span
@@ -742,7 +996,11 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
                       disabled={isArchived || actionLoadingId === draw.id}
                       className="flex items-center justify-center gap-2 rounded-xl bg-yellow-500 px-3 py-2 text-sm font-semibold text-black transition hover:bg-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <Archive size={15} />
+                      {actionLoadingId === draw.id ? (
+                        <RefreshCw size={15} className="animate-spin" />
+                      ) : (
+                        <Archive size={15} />
+                      )}
                       {isArchived ? "Arquivado" : "Arquivar"}
                     </button>
 
@@ -752,7 +1010,11 @@ export function InteractionDrawTool({ classes, students, activities }: Props) {
                       disabled={actionLoadingId === draw.id}
                       className="flex items-center justify-center gap-2 rounded-xl bg-red-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-400 disabled:opacity-50"
                     >
-                      <Trash2 size={15} />
+                      {actionLoadingId === draw.id ? (
+                        <RefreshCw size={15} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={15} />
+                      )}
                       Excluir
                     </button>
                   </div>

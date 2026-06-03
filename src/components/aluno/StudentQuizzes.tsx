@@ -1,0 +1,1162 @@
+"use client";
+
+import StudentMobileNav from "@/components/aluno/StudentMobileNav";
+import StudentRealtimeNotifications from "@/components/aluno/StudentRealtimeNotifications";
+import { supabase } from "@/lib/supabase";
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  Gamepad2,
+  Loader2,
+  Play,
+  Rocket,
+  Sparkles,
+  Trophy,
+  XCircle,
+  Zap,
+  Crown,
+  Star,
+  Medal,
+  PartyPopper,
+  CircleDot,
+} from "lucide-react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
+type StudentSession = {
+  studentId: string;
+  classId: string;
+  studentName: string;
+};
+
+type Quiz = {
+  id: string;
+  class_id: string;
+  title: string;
+  description: string | null;
+  mode: "assignment" | "live" | string | null;
+  theme: string | null;
+  status: string | null;
+  total_questions: number | null;
+  grade_weight: number | null;
+  time_per_question: number | null;
+  current_question_order: number | null;
+};
+
+type QuizQuestion = {
+  id: string;
+  quiz_id: string;
+  question_order: number;
+  question_text: string;
+  options: {
+    id: string;
+    text: string;
+  }[];
+  correct_option_id: string;
+};
+
+type QuizAttempt = {
+  id: string;
+  quiz_id: string;
+  student_id: string;
+  score: number;
+};
+
+type QuizParticipant = {
+  id: string;
+  quiz_id: string;
+  student_id: string;
+  student_name: string;
+  nickname: string | null;
+  emoji: string | null;
+};
+
+type SelectedAnswers = Record<string, string>;
+
+type RankingItem = {
+  student_id: string;
+  student_name: string;
+  nickname: string;
+  emoji: string;
+  correctAnswers: number;
+  points: number;
+};
+
+const emojis = [
+  "🚀",
+  "🔥",
+  "⚡",
+  "🎮",
+  "👾",
+  "🤖",
+  "🧠",
+  "🏆",
+  "🐺",
+  "🦊",
+  "🐼",
+  "🐸",
+  "🐯",
+  "🦁",
+  "🐵",
+  "🐧",
+  "🦉",
+  "🐲",
+  "🦄",
+  "🐙",
+  "🦖",
+  "🐝",
+  "🐢",
+  "🦋",
+  "🐳",
+  "🦥",
+  "🐨",
+  "🐰",
+  "🍕",
+];
+
+const optionVisuals = [
+  {
+    letter: "A",
+    symbol: "◆",
+    idle:
+      "border-red-400/35 bg-gradient-to-br from-red-500/25 via-rose-500/15 to-red-950/50 hover:border-red-300 hover:from-red-500/35 hover:to-red-800/40",
+    selected:
+      "border-red-200 bg-gradient-to-br from-red-400 via-rose-500 to-red-700 text-white shadow-2xl shadow-red-500/40 ring-red-200/70",
+    badge: "bg-red-500",
+  },
+  {
+    letter: "B",
+    symbol: "●",
+    idle:
+      "border-blue-400/35 bg-gradient-to-br from-blue-500/25 via-cyan-500/15 to-blue-950/50 hover:border-blue-300 hover:from-blue-500/35 hover:to-blue-800/40",
+    selected:
+      "border-blue-200 bg-gradient-to-br from-blue-400 via-cyan-500 to-blue-700 text-white shadow-2xl shadow-blue-500/40 ring-blue-200/70",
+    badge: "bg-blue-500",
+  },
+  {
+    letter: "C",
+    symbol: "▲",
+    idle:
+      "border-yellow-400/35 bg-gradient-to-br from-yellow-500/25 via-orange-500/15 to-yellow-950/50 hover:border-yellow-300 hover:from-yellow-500/35 hover:to-orange-800/40",
+    selected:
+      "border-yellow-100 bg-gradient-to-br from-yellow-300 via-orange-400 to-yellow-700 text-slate-950 shadow-2xl shadow-yellow-500/40 ring-yellow-100/70",
+    badge: "bg-yellow-400 text-slate-950",
+  },
+  {
+    letter: "D",
+    symbol: "■",
+    idle:
+      "border-emerald-400/35 bg-gradient-to-br from-emerald-500/25 via-green-500/15 to-emerald-950/50 hover:border-emerald-300 hover:from-emerald-500/35 hover:to-emerald-800/40",
+    selected:
+      "border-emerald-100 bg-gradient-to-br from-emerald-300 via-green-500 to-emerald-700 text-white shadow-2xl shadow-emerald-500/40 ring-emerald-100/70",
+    badge: "bg-emerald-500",
+  },
+];
+
+function getTodayDate() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function getThemeClasses(theme: string | null) {
+  if (theme === "arcade") {
+    return {
+      page: "from-purple-950 via-slate-950 to-fuchsia-950",
+      accent: "bg-fuchsia-500",
+      accentHover: "hover:bg-fuchsia-400",
+      border: "border-fuchsia-500/30",
+      soft: "bg-fuchsia-500/10",
+      text: "text-fuchsia-200",
+      glow: "shadow-fuchsia-500/20",
+      gradient: "from-fuchsia-500 via-purple-500 to-pink-500",
+    };
+  }
+
+  if (theme === "energy") {
+    return {
+      page: "from-orange-950 via-slate-950 to-yellow-950",
+      accent: "bg-orange-500",
+      accentHover: "hover:bg-orange-400",
+      border: "border-orange-500/30",
+      soft: "bg-orange-500/10",
+      text: "text-orange-200",
+      glow: "shadow-orange-500/20",
+      gradient: "from-orange-500 via-yellow-500 to-red-500",
+    };
+  }
+
+  if (theme === "classic") {
+    return {
+      page: "from-blue-950 via-slate-950 to-cyan-950",
+      accent: "bg-blue-500",
+      accentHover: "hover:bg-blue-400",
+      border: "border-blue-500/30",
+      soft: "bg-blue-500/10",
+      text: "text-blue-200",
+      glow: "shadow-blue-500/20",
+      gradient: "from-blue-500 via-cyan-500 to-sky-500",
+    };
+  }
+
+  return {
+    page: "from-cyan-950 via-slate-950 to-violet-950",
+    accent: "bg-cyan-500",
+    accentHover: "hover:bg-cyan-400",
+    border: "border-cyan-500/30",
+    soft: "bg-cyan-500/10",
+    text: "text-cyan-200",
+    glow: "shadow-cyan-500/20",
+    gradient: "from-cyan-500 via-blue-500 to-violet-500",
+  };
+}
+
+function getScore({
+  correctAnswers,
+  totalQuestions,
+  gradeWeight,
+}: {
+  correctAnswers: number;
+  totalQuestions: number;
+  gradeWeight: number;
+}) {
+  if (totalQuestions <= 0) {
+    return 0;
+  }
+
+  return Number(((correctAnswers / totalQuestions) * gradeWeight).toFixed(1));
+}
+
+function getErrorMessage(error: unknown) {
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message?: unknown }).message);
+  }
+
+  return "Não foi possível concluir a operação.";
+}
+
+export default function StudentQuizzes() {
+  const router = useRouter();
+
+  const [session, setSession] = useState<StudentSession | null>(null);
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [questionsByQuiz, setQuestionsByQuiz] = useState<
+    Record<string, QuizQuestion[]>
+  >({});
+  const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
+  const [participants, setParticipants] = useState<QuizParticipant[]>([]);
+  const [rankingAnswers, setRankingAnswers] = useState<any[]>([]);
+
+  const [selectedQuizId, setSelectedQuizId] = useState("");
+  const [selectedAnswers, setSelectedAnswers] = useState<SelectedAnswers>({});
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+
+  const [nickname, setNickname] = useState("");
+  const [selectedEmoji, setSelectedEmoji] = useState("🚀");
+
+  const [loading, setLoading] = useState(true);
+  const [joining, setJoining] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [message, setMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  async function loadData(parsedSession?: StudentSession) {
+    const activeSession = parsedSession || session;
+
+    if (!activeSession) {
+      return;
+    }
+
+    const [quizzesResponse, attemptsResponse] = await Promise.all([
+      supabase
+        .from("quizzes")
+        .select("*")
+        .eq("class_id", activeSession.classId)
+        .in("status", ["active", "waiting", "live", "finished"])
+        .order("created_at", { ascending: false }),
+
+      supabase
+        .from("quiz_attempts")
+        .select("*")
+        .eq("student_id", activeSession.studentId),
+    ]);
+
+    if (quizzesResponse.error) {
+      console.error(quizzesResponse.error.message);
+      setQuizzes([]);
+      setLoading(false);
+      return;
+    }
+
+    const loadedQuizzes = (quizzesResponse.data as Quiz[] | null) ?? [];
+    setQuizzes(loadedQuizzes);
+    setAttempts((attemptsResponse.data as QuizAttempt[] | null) ?? []);
+
+    const quizIds = loadedQuizzes.map((quiz) => quiz.id);
+
+    if (quizIds.length > 0) {
+      const [questionsResponse, participantsResponse, answersResponse] =
+        await Promise.all([
+          supabase
+            .from("quiz_questions")
+            .select("*")
+            .in("quiz_id", quizIds)
+            .order("question_order", { ascending: true }),
+
+          supabase
+            .from("quiz_participants")
+            .select("*")
+            .in("quiz_id", quizIds),
+
+          supabase.from("quiz_answers").select("*").in("quiz_id", quizIds),
+        ]);
+
+      if (!questionsResponse.error) {
+        const groupedQuestions: Record<string, QuizQuestion[]> = {};
+
+        ((questionsResponse.data as QuizQuestion[] | null) ?? []).forEach(
+          (question) => {
+            if (!groupedQuestions[question.quiz_id]) {
+              groupedQuestions[question.quiz_id] = [];
+            }
+
+            groupedQuestions[question.quiz_id].push(question);
+          }
+        );
+
+        setQuestionsByQuiz(groupedQuestions);
+      }
+
+      if (!participantsResponse.error) {
+        setParticipants(
+          (participantsResponse.data as QuizParticipant[] | null) ?? []
+        );
+      }
+
+      if (!answersResponse.error) {
+        setRankingAnswers(answersResponse.data ?? []);
+      }
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    const savedSession = sessionStorage.getItem("melia_student_session");
+
+    if (!savedSession) {
+      router.push("/aluno");
+      return;
+    }
+
+    const parsedSession = JSON.parse(savedSession) as StudentSession;
+
+    setSession(parsedSession);
+    setNickname(parsedSession.studentName.split(" ")[0] || "Aluno");
+
+    loadData(parsedSession);
+  }, [router]);
+
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`student_quiz_realtime_${session.studentId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "quizzes",
+        },
+        () => loadData(session)
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "quiz_answers",
+        },
+        () => loadData(session)
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "quiz_participants",
+        },
+        () => loadData(session)
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session]);
+
+  const selectedQuiz = quizzes.find((quiz) => quiz.id === selectedQuizId);
+  const selectedQuestions = selectedQuiz
+    ? questionsByQuiz[selectedQuiz.id] ?? []
+    : [];
+
+  const selectedQuizAttempt = selectedQuiz
+    ? attempts.find((attempt) => attempt.quiz_id === selectedQuiz.id)
+    : null;
+
+  const currentQuestion =
+    selectedQuestions[currentQuestionIndex] ?? selectedQuestions[0] ?? null;
+
+  const alreadyAnswered = Boolean(selectedQuizAttempt);
+
+  const currentSelectedOptionId = currentQuestion
+    ? selectedAnswers[currentQuestion.id]
+    : "";
+
+  const progressPercent =
+    selectedQuestions.length > 0
+      ? ((currentQuestionIndex + 1) / selectedQuestions.length) * 100
+      : 0;
+
+  const ranking = useMemo<RankingItem[]>(() => {
+    if (!selectedQuiz) {
+      return [];
+    }
+
+    return participants
+      .filter((participant) => participant.quiz_id === selectedQuiz.id)
+      .map((participant) => {
+        const answers = rankingAnswers.filter(
+          (answer) =>
+            answer.quiz_id === selectedQuiz.id &&
+            answer.student_id === participant.student_id
+        );
+
+        return {
+          student_id: participant.student_id,
+          student_name: participant.student_name,
+          nickname: participant.nickname || participant.student_name,
+          emoji: participant.emoji || "🚀",
+          correctAnswers: answers.filter((answer) => answer.is_correct).length,
+          points: answers.reduce(
+            (sum, answer) => sum + Number(answer.points ?? 0),
+            0
+          ),
+        };
+      })
+      .sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        return b.correctAnswers - a.correctAnswers;
+      });
+  }, [participants, rankingAnswers, selectedQuiz]);
+
+  async function recalculateStudentAverage(studentId: string) {
+    const { data, error } = await supabase
+      .from("grades")
+      .select("score")
+      .eq("student_id", studentId);
+
+    if (error) {
+      throw error;
+    }
+
+    const scores =
+      data
+        ?.map((item) => Number(item.score))
+        .filter((score) => !Number.isNaN(score)) ?? [];
+
+    const average =
+      scores.length > 0
+        ? Number(
+            (
+              scores.reduce((sum, score) => sum + score, 0) / scores.length
+            ).toFixed(1)
+          )
+        : 0;
+
+    const { error: updateStudentError } = await supabase
+      .from("students")
+      .update({ average })
+      .eq("id", studentId);
+
+    if (updateStudentError) {
+      throw updateStudentError;
+    }
+  }
+
+  async function joinQuiz(quiz: Quiz) {
+    if (!session) return;
+
+    setJoining(true);
+    setMessage(null);
+
+    const { error } = await supabase.from("quiz_participants").upsert(
+      {
+        quiz_id: quiz.id,
+        student_id: session.studentId,
+        class_id: session.classId,
+        student_name: session.studentName,
+        nickname: nickname.trim() || session.studentName,
+        emoji: selectedEmoji,
+      },
+      {
+        onConflict: "quiz_id,student_id",
+      }
+    );
+
+    setJoining(false);
+
+    if (error) {
+      setMessage({
+        type: "error",
+        text: `Erro ao entrar no quiz: ${error.message}`,
+      });
+
+      return;
+    }
+
+    setSelectedQuizId(quiz.id);
+    setSelectedAnswers({});
+    setCurrentQuestionIndex(0);
+    await loadData(session);
+  }
+
+  async function finishQuiz() {
+    if (!session || !selectedQuiz) {
+      return;
+    }
+
+    setSubmitting(true);
+    setMessage(null);
+
+    try {
+      const totalQuestions = selectedQuestions.length;
+      const gradeWeight = Number(selectedQuiz.grade_weight ?? 10);
+
+      const answerRows = selectedQuestions.map((question) => {
+        const selectedOptionId = selectedAnswers[question.id] || "";
+        const isCorrect = selectedOptionId === question.correct_option_id;
+
+        return {
+          quiz_id: selectedQuiz.id,
+          question_id: question.id,
+          student_id: session.studentId,
+          selected_option_id: selectedOptionId,
+          is_correct: isCorrect,
+          points: isCorrect ? 1000 : 0,
+        };
+      });
+
+      const correctAnswers = answerRows.filter((answer) => answer.is_correct)
+        .length;
+
+      const score = getScore({
+        correctAnswers,
+        totalQuestions,
+        gradeWeight,
+      });
+
+      const { data: createdAttempt, error: attemptError } = await supabase
+        .from("quiz_attempts")
+        .insert({
+          quiz_id: selectedQuiz.id,
+          student_id: session.studentId,
+          class_id: session.classId,
+          mode: selectedQuiz.mode || "assignment",
+          score,
+          total_questions: totalQuestions,
+          correct_answers: correctAnswers,
+          total_points: correctAnswers * 1000,
+          finished_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (attemptError || !createdAttempt?.id) {
+        throw attemptError || new Error("Não foi possível salvar sua tentativa.");
+      }
+
+      const answersWithAttempt = answerRows.map((answer) => ({
+        ...answer,
+        attempt_id: createdAttempt.id,
+      }));
+
+      const { error: answersError } = await supabase
+        .from("quiz_answers")
+        .insert(answersWithAttempt);
+
+      if (answersError) {
+        throw answersError;
+      }
+
+      const { error: gradeError } = await supabase.from("grades").insert({
+        student_id: session.studentId,
+        title: `Quiz: ${selectedQuiz.title}`,
+        score,
+        date: getTodayDate(),
+        feedback: `Nota gerada automaticamente pelo Quiz. Acertos: ${correctAnswers}/${totalQuestions}.`,
+      });
+
+      if (gradeError) {
+        throw gradeError;
+      }
+
+      await recalculateStudentAverage(session.studentId);
+
+      setMessage({
+        type: "success",
+        text: `Quiz finalizado! Sua nota foi ${score.toFixed(1)}.`,
+      });
+
+      await loadData(session);
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: `Erro ao finalizar quiz: ${getErrorMessage(error)}`,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function selectAnswer(questionId: string, optionId: string) {
+    setSelectedAnswers((current) => ({
+      ...current,
+      [questionId]: optionId,
+    }));
+
+    setMessage(null);
+  }
+
+  function goToNextQuestion() {
+    if (!currentQuestion) return;
+
+    if (!selectedAnswers[currentQuestion.id]) {
+      setMessage({
+        type: "error",
+        text: "Toque em uma alternativa antes de continuar.",
+      });
+      return;
+    }
+
+    setMessage(null);
+
+    if (currentQuestionIndex >= selectedQuestions.length - 1) {
+      finishQuiz();
+      return;
+    }
+
+    setCurrentQuestionIndex((current) => current + 1);
+  }
+
+  const theme = getThemeClasses(selectedQuiz?.theme ?? "neon");
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
+        <div className="text-center">
+          <div className="mx-auto mb-5 flex h-20 w-20 animate-pulse items-center justify-center rounded-[28px] bg-cyan-500/20 text-cyan-300">
+            <Gamepad2 className="h-10 w-10" />
+          </div>
+
+          <p className="text-lg font-bold">Carregando quizzes...</p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main
+      className={`relative min-h-screen overflow-hidden bg-gradient-to-br ${theme.page} pb-28 text-white`}
+    >
+      <div className="pointer-events-none fixed left-10 top-24 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl" />
+      <div className="pointer-events-none fixed bottom-20 right-10 h-80 w-80 rounded-full bg-fuchsia-500/10 blur-3xl" />
+
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/80 px-4 py-4 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
+          <div>
+            <Link
+              href="/aluno/dashboard"
+              className="mb-2 inline-flex text-sm text-cyan-300 hover:text-cyan-200"
+            >
+              ← Voltar ao painel
+            </Link>
+
+            <h1 className="text-3xl font-black">Quiz</h1>
+
+            <p className="mt-1 text-sm text-slate-400">
+              Escolha seu avatar, responda e acompanhe sua pontuação.
+            </p>
+          </div>
+
+          <div className="hidden rounded-3xl border border-white/10 bg-white/5 px-5 py-3 text-right sm:block">
+            <p className="text-xs text-slate-400">Jogador</p>
+            <p className="text-lg font-black">
+              {selectedEmoji} {nickname || "Aluno"}
+            </p>
+          </div>
+        </div>
+      </header>
+
+      <section className="relative z-10 mx-auto max-w-6xl px-4 py-6">
+        {message && (
+          <div
+            className={`mb-5 flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold ${
+              message.type === "success"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                : "border-red-500/30 bg-red-500/10 text-red-200"
+            }`}
+          >
+            {message.type === "success" ? (
+              <CheckCircle2 size={18} />
+            ) : (
+              <XCircle size={18} />
+            )}
+
+            {message.text}
+          </div>
+        )}
+
+        {!selectedQuiz ? (
+          <div className="grid gap-5">
+            <div className="relative overflow-hidden rounded-[36px] border border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-500/15 via-slate-900/80 to-cyan-500/10 p-6 shadow-2xl shadow-fuchsia-500/10">
+              <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-fuchsia-500/20 blur-3xl" />
+
+              <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-start gap-4">
+                  <div className="rounded-3xl bg-fuchsia-500/20 p-4 text-fuchsia-200 shadow-xl shadow-fuchsia-500/20">
+                    <Gamepad2 size={38} />
+                  </div>
+
+                  <div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-fuchsia-300/20 bg-fuchsia-500/10 px-4 py-2 text-xs font-black uppercase tracking-wide text-fuchsia-100">
+                      <Sparkles className="h-4 w-4" />
+                      Modo Quiz
+                    </div>
+
+                    <h2 className="mt-4 text-3xl font-black sm:text-4xl">
+                      Escolha seu avatar e entre no jogo
+                    </h2>
+
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+                      O apelido aparece no ranking, mas seu nome real continua
+                      registrado no sistema para a correção e a nota.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-[32px] border border-white/10 bg-slate-950/50 p-5 lg:w-[420px]">
+                  <input
+                    value={nickname}
+                    onChange={(event) => setNickname(event.target.value)}
+                    placeholder="Seu apelido no ranking"
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-fuchsia-400"
+                  />
+
+                  <div className="mt-4 grid max-h-44 grid-cols-6 gap-2 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/50 p-3 sm:grid-cols-8">
+                    {emojis.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => setSelectedEmoji(emoji)}
+                        className={`rounded-2xl border p-2 text-2xl transition hover:scale-110 ${
+                          selectedEmoji === emoji
+                            ? "scale-110 border-fuchsia-300 bg-fuchsia-500/25 shadow-lg shadow-fuchsia-500/20"
+                            : "border-slate-800 bg-slate-900 hover:border-fuchsia-400/40"
+                        }`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {quizzes.length === 0 ? (
+              <div className="rounded-[32px] border border-slate-800 bg-slate-900/70 p-8 text-center">
+                <AlertTriangle className="mx-auto h-12 w-12 text-slate-500" />
+
+                <h2 className="mt-4 text-2xl font-black">
+                  Nenhum quiz disponível
+                </h2>
+
+                <p className="mt-2 text-sm text-slate-400">
+                  Quando o professor liberar um quiz para sua turma, ele
+                  aparecerá aqui.
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-5 md:grid-cols-2">
+                {quizzes.map((quiz) => {
+                  const attempt = attempts.find(
+                    (item) => item.quiz_id === quiz.id
+                  );
+
+                  const quizTheme = getThemeClasses(quiz.theme);
+
+                  return (
+                    <div
+                      key={quiz.id}
+                      className={`group relative overflow-hidden rounded-[34px] border ${quizTheme.border} bg-slate-900/75 p-6 shadow-2xl transition hover:-translate-y-1 hover:shadow-fuchsia-500/10`}
+                    >
+                      <div
+                        className={`absolute -right-16 -top-16 h-44 w-44 rounded-full bg-gradient-to-br ${quizTheme.gradient} opacity-20 blur-3xl transition group-hover:opacity-30`}
+                      />
+
+                      <div className="relative z-10">
+                        <div className="flex items-start gap-4">
+                          <div
+                            className={`rounded-3xl bg-gradient-to-br ${quizTheme.gradient} p-4 text-white shadow-xl ${quizTheme.glow}`}
+                          >
+                            <Rocket size={30} />
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap gap-2">
+                              <span className="rounded-full bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-200">
+                                {quiz.mode === "live"
+                                  ? "Sala de aula"
+                                  : "Atividade"}
+                              </span>
+
+                              <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300">
+                                {quiz.status}
+                              </span>
+                            </div>
+
+                            <h3 className="mt-3 text-2xl font-black">
+                              {quiz.title}
+                            </h3>
+
+                            {quiz.description && (
+                              <p className="mt-2 text-sm leading-6 text-slate-400">
+                                {quiz.description}
+                              </p>
+                            )}
+
+                            <p className="mt-3 text-sm text-slate-500">
+                              {quiz.total_questions ?? 0} pergunta(s)
+                            </p>
+                          </div>
+                        </div>
+
+                        {attempt ? (
+                          <div className="mt-5 rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-emerald-200">
+                            <CheckCircle2 className="mb-2 h-5 w-5" />
+                            Quiz respondido. Nota:{" "}
+                            <strong>{Number(attempt.score).toFixed(1)}</strong>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => joinQuiz(quiz)}
+                            disabled={joining || quiz.status === "finished"}
+                            className={`mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r ${quizTheme.gradient} px-5 py-4 text-base font-black text-white shadow-xl transition hover:scale-[1.02] disabled:opacity-50`}
+                          >
+                            {joining ? (
+                              <Loader2 size={18} className="animate-spin" />
+                            ) : (
+                              <Play size={18} />
+                            )}
+                            {quiz.status === "finished"
+                              ? "Quiz finalizado"
+                              : "Entrar no quiz"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : alreadyAnswered ? (
+          <div className="rounded-[36px] border border-emerald-500/20 bg-gradient-to-br from-emerald-500/20 to-green-500/10 p-8 text-center shadow-2xl shadow-emerald-500/10">
+            <PartyPopper className="mx-auto h-16 w-16 text-emerald-300" />
+
+            <h2 className="mt-4 text-4xl font-black">Quiz concluído!</h2>
+
+            <p className="mt-3 text-lg text-emerald-100">
+              Sua nota foi{" "}
+              <strong>{Number(selectedQuizAttempt?.score ?? 0).toFixed(1)}</strong>
+              .
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setSelectedQuizId("")}
+              className="mt-6 rounded-2xl bg-emerald-500 px-6 py-4 font-black text-white transition hover:scale-[1.02] hover:bg-emerald-400"
+            >
+              Voltar aos quizzes
+            </button>
+          </div>
+        ) : selectedQuiz.mode === "live" && selectedQuiz.status === "waiting" ? (
+          <div className="rounded-[36px] border border-yellow-500/20 bg-gradient-to-br from-yellow-500/20 to-orange-500/10 p-8 text-center shadow-2xl shadow-yellow-500/10">
+            <Sparkles className="mx-auto h-16 w-16 animate-pulse text-yellow-300" />
+
+            <h2 className="mt-4 text-4xl font-black">Você entrou na sala!</h2>
+
+            <p className="mt-2 text-yellow-100">
+              Aguarde o professor iniciar o quiz.
+            </p>
+
+            <div className="mt-8 text-7xl">{selectedEmoji}</div>
+
+            <p className="mt-4 text-2xl font-black text-white">{nickname}</p>
+
+            <div className="mx-auto mt-6 flex max-w-xs items-center justify-center gap-2 rounded-full border border-yellow-300/20 bg-yellow-500/10 px-4 py-3 text-sm font-bold text-yellow-100">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Esperando início...
+            </div>
+          </div>
+        ) : selectedQuiz.mode === "live" &&
+          selectedQuiz.status === "finished" ? (
+          <div className="rounded-[36px] border border-yellow-500/20 bg-gradient-to-br from-yellow-500/20 via-orange-500/10 to-slate-900 p-8 shadow-2xl shadow-yellow-500/10">
+            <div className="text-center">
+              <Crown className="mx-auto h-20 w-20 text-yellow-300" />
+
+              <h2 className="mt-4 text-4xl font-black">Ranking da rodada</h2>
+
+              <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+                O ranking mostra a participação desta rodada. O mais importante
+                é aprender, evoluir e tentar de novo.
+              </p>
+            </div>
+
+            <div className="mt-8 space-y-3">
+              {ranking.map((item, index) => (
+                <div
+                  key={item.student_id}
+                  className={`flex items-center justify-between rounded-3xl border px-5 py-4 transition ${
+                    index === 0
+                      ? "border-yellow-300/50 bg-yellow-500/20 shadow-xl shadow-yellow-500/10"
+                      : index === 1
+                      ? "border-slate-300/30 bg-slate-300/10"
+                      : index === 2
+                      ? "border-orange-400/30 bg-orange-500/10"
+                      : "border-slate-800 bg-slate-950/50"
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="text-4xl">
+                      {index === 0
+                        ? "🥇"
+                        : index === 1
+                        ? "🥈"
+                        : index === 2
+                        ? "🥉"
+                        : `${index + 1}º`}
+                    </div>
+
+                    <div>
+                      <p className="text-lg font-black">
+                        {item.emoji} {item.nickname}
+                      </p>
+
+                      <p className="text-sm text-slate-400">
+                        {item.correctAnswers} acerto(s)
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="text-xl font-black text-yellow-200">
+                    {item.points} pts
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSelectedQuizId("")}
+              className="mt-6 w-full rounded-2xl bg-yellow-500 px-5 py-4 font-black text-slate-950 transition hover:scale-[1.01] hover:bg-yellow-400"
+            >
+              Voltar
+            </button>
+          </div>
+        ) : currentQuestion ? (
+          <div className="grid gap-5">
+            <div className="overflow-hidden rounded-[36px] border border-white/10 bg-slate-900/80 shadow-2xl backdrop-blur">
+              <div className={`h-2 bg-gradient-to-r ${theme.gradient}`}>
+                <div
+                  className="h-full bg-white/80 transition-all duration-500"
+                  style={{
+                    width: `${progressPercent}%`,
+                  }}
+                />
+              </div>
+
+              <div className="p-5 sm:p-7">
+                <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`inline-flex items-center gap-2 rounded-full border ${theme.border} ${theme.soft} px-4 py-2 text-xs font-black uppercase tracking-wide ${theme.text}`}
+                      >
+                        <Zap className="h-4 w-4" />
+                        Pergunta {currentQuestionIndex + 1} de{" "}
+                        {selectedQuestions.length}
+                      </span>
+
+                      {currentSelectedOptionId && (
+                        <span className="inline-flex animate-pulse items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-500/15 px-4 py-2 text-xs font-black uppercase tracking-wide text-emerald-200">
+                          <CheckCircle2 className="h-4 w-4" />
+                          Resposta selecionada
+                        </span>
+                      )}
+                    </div>
+
+                    <h2 className="mt-5 text-3xl font-black leading-tight sm:text-4xl lg:text-5xl">
+                      {currentQuestion.question_text}
+                    </h2>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-white/5 px-5 py-4 text-center">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Jogador
+                    </p>
+
+                    <p className="mt-1 text-2xl font-black">
+                      {selectedEmoji} {nickname}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  {currentQuestion.options.map((option, index) => {
+                    const selected =
+                      selectedAnswers[currentQuestion.id] === option.id;
+
+                    const visual = optionVisuals[index] ?? optionVisuals[0];
+
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() =>
+                          selectAnswer(currentQuestion.id, option.id)
+                        }
+                        className={`group relative min-h-[138px] overflow-hidden rounded-[32px] border p-5 text-left transition-all duration-300 hover:-translate-y-1 active:scale-[0.98] ${
+                          selected
+                            ? `scale-[1.03] ring-4 ${visual.selected}`
+                            : `${visual.idle}`
+                        }`}
+                      >
+                        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl transition group-hover:bg-white/20" />
+
+                        {selected && (
+                          <div className="absolute right-4 top-4 z-20 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-950 shadow-xl">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            Selecionada
+                          </div>
+                        )}
+
+                        <div className="relative z-10 flex h-full flex-col justify-between gap-5">
+                          <div className="flex items-start gap-4 pr-24">
+                            <div
+                              className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-2xl font-black shadow-lg ${
+                                selected
+                                  ? "bg-white text-slate-950"
+                                  : `${visual.badge} text-white`
+                              }`}
+                            >
+                              {visual.letter}
+                            </div>
+
+                            <p className="text-xl font-black leading-snug sm:text-2xl">
+                              {option.text}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-3xl opacity-80">
+                              {visual.symbol}
+                            </span>
+
+                            <span
+                              className={`text-sm font-bold ${
+                                selected ? "opacity-100" : "opacity-60"
+                              }`}
+                            >
+                              {selected
+                                ? "Essa é sua escolha"
+                                : "Toque para escolher"}
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-slate-300">
+                    {currentSelectedOptionId ? (
+                      <span className="font-semibold text-emerald-200">
+                        Resposta marcada. Agora você pode avançar.
+                      </span>
+                    ) : (
+                      <span>Escolha uma alternativa para continuar.</span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={goToNextQuestion}
+                    disabled={submitting || !currentSelectedOptionId}
+                    className={`flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r ${theme.gradient} px-7 py-4 text-lg font-black text-white shadow-2xl ${theme.glow} transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:grayscale disabled:opacity-40`}
+                  >
+                    {submitting ? (
+                      <Loader2 className="animate-spin" size={20} />
+                    ) : currentQuestionIndex >= selectedQuestions.length - 1 ? (
+                      <Trophy size={20} />
+                    ) : (
+                      <ArrowRight size={20} />
+                    )}
+
+                    {currentQuestionIndex >= selectedQuestions.length - 1
+                      ? "Finalizar quiz"
+                      : "Próxima pergunta"}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs text-slate-400">Progresso</p>
+                <p className="mt-1 text-2xl font-black">
+                  {Math.round(progressPercent)}%
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs text-slate-400">Respondidas</p>
+                <p className="mt-1 text-2xl font-black">
+                  {Object.keys(selectedAnswers).length}
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs text-slate-400">Tema</p>
+                <p className="mt-1 text-2xl font-black capitalize">
+                  {selectedQuiz.theme || "neon"}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <StudentRealtimeNotifications />
+      <StudentMobileNav />
+    </main>
+  );
+}
