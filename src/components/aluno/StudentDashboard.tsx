@@ -22,6 +22,7 @@ import {
   XCircle,
   Save,
   X,
+  PartyPopper,
 } from "lucide-react";
 
 import StudentSidebar from "./StudentSidebar";
@@ -53,6 +54,7 @@ type StudentData = {
   course_name: string | null;
   portal_pin: string | null;
   must_change_pin: boolean | null;
+  birth_date: string | null;
 };
 
 type DashboardStats = {
@@ -115,35 +117,57 @@ type StudentDrawSummary = {
   createdAt: string | null;
 };
 
-const quickActions = [
-  {
-    title: "Mensagens",
-    href: "/aluno/mensagens",
-    icon: MessageCircle,
-    color:
-      "from-cyan-500/20 to-blue-500/20 border-cyan-500/20 text-cyan-300",
-  },
-  {
-    title: "Atividades",
-    href: "/aluno/atividades",
-    icon: BookOpen,
-    color:
-      "from-purple-500/20 to-pink-500/20 border-purple-500/20 text-purple-300",
-  },
-  {
-    title: "Notas",
-    href: "/aluno/notas",
-    icon: Trophy,
-    color:
-      "from-yellow-500/20 to-orange-500/20 border-yellow-500/20 text-yellow-300",
-  },
-  {
-    title: "XP",
-    href: "/aluno/gamificacao",
-    icon: Zap,
-    color:
-      "from-emerald-500/20 to-green-500/20 border-emerald-500/20 text-emerald-300",
-  },
+type RecentMessage = {
+  id: string;
+  content: string | null;
+  sender: string | null;
+  is_read: boolean | null;
+  created_at: string | null;
+};
+
+type PendingActivity = {
+  id: string;
+  title: string | null;
+  description: string | null;
+  due_date: string | null;
+};
+
+type AvailableQuiz = {
+  id: string;
+  title: string | null;
+  mode: string | null;
+  status: string | null;
+  result_type: string | null;
+  total_questions: number | null;
+  created_at: string | null;
+};
+
+type RecentGrade = {
+  id: string;
+  title: string | null;
+  score: number | string | null;
+  date: string | null;
+  feedback: string | null;
+};
+
+type BirthdayMessage = {
+  id: string;
+  message: string;
+};
+
+type BirthdayInfo = {
+  isToday: boolean;
+  isInBirthdayWeek: boolean;
+  daysUntil: number;
+  formattedDate: string;
+  message: string;
+};
+
+const fallbackBirthdayMessages = [
+  "Que seu novo ciclo venha com coragem para aprender, energia para crescer e confiança para construir o futuro que você merece.",
+  "Hoje é um dia especial para lembrar que cada fase da vida traz novas chances de evoluir, sonhar e conquistar.",
+  "Que sua jornada seja cheia de descobertas, boas escolhas, amizades verdadeiras e motivos para acreditar no seu próprio potencial.",
+  "Parabéns pelo seu dia! Que você continue crescendo com criatividade, responsabilidade e vontade de transformar o mundo ao seu redor.",
 ];
 
 function formatDateTime(value: string | null) {
@@ -158,6 +182,47 @@ function formatDateTime(value: string | null) {
   }
 
   return date.toLocaleString("pt-BR");
+}
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "Sem data";
+  }
+
+  const date = new Date(`${value}`.includes("T") ? value : `${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Sem data";
+  }
+
+  return date.toLocaleDateString("pt-BR");
+}
+
+function formatShortDate(value: string | null) {
+  if (!value) {
+    return "Sem prazo";
+  }
+
+  const date = new Date(`${value}`.includes("T") ? value : `${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Sem prazo";
+  }
+
+  return date.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+function formatScore(value: number | string | null) {
+  const numericValue = Number(value);
+
+  if (Number.isNaN(numericValue)) {
+    return "-";
+  }
+
+  return numericValue.toFixed(1);
 }
 
 function getSafeUrl(value: string | null) {
@@ -192,6 +257,90 @@ function getDefaultStudentPin(name: string) {
   return `${firstName}123`;
 }
 
+function getMessagePreview(value: string | null) {
+  const text = value?.trim();
+
+  if (!text) {
+    return "Você recebeu uma nova mensagem do professor.";
+  }
+
+  if (text.length <= 160) {
+    return text;
+  }
+
+  return `${text.slice(0, 160)}...`;
+}
+
+function getQuizStatusLabel(status: string | null) {
+  if (status === "waiting") return "Sala aberta";
+  if (status === "live") return "Ao vivo";
+  if (status === "finished") return "Finalizado";
+  if (status === "active") return "Disponível";
+
+  return "Quiz";
+}
+
+function getBirthdayInfo(
+  birthDate: string | null,
+  firstName: string,
+  messages: BirthdayMessage[]
+): BirthdayInfo | null {
+  if (!birthDate) {
+    return null;
+  }
+
+  const [yearValue, monthValue, dayValue] = birthDate.split("-");
+
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+
+  if (!month || !day) {
+    return null;
+  }
+
+  const today = new Date();
+  const todayStart = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate()
+  );
+
+  let nextBirthday = new Date(today.getFullYear(), month - 1, day);
+
+  if (nextBirthday < todayStart) {
+    nextBirthday = new Date(today.getFullYear() + 1, month - 1, day);
+  }
+
+  const daysUntil = Math.round(
+    (nextBirthday.getTime() - todayStart.getTime()) / 86400000
+  );
+
+  const messageSource =
+    messages.length > 0
+      ? messages.map((item) => item.message)
+      : fallbackBirthdayMessages;
+
+  const messageIndex =
+    (month * 31 + day + today.getFullYear()) % messageSource.length;
+
+  const formattedDate = new Date(
+    2000,
+    month - 1,
+    day
+  ).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "long",
+  });
+
+  return {
+    isToday: daysUntil === 0,
+    isInBirthdayWeek: daysUntil >= 0 && daysUntil <= 7,
+    daysUntil,
+    formattedDate,
+    message: messageSource[messageIndex].replace("{nome}", firstName),
+  };
+}
+
 export default function StudentDashboard() {
   const router = useRouter();
 
@@ -203,6 +352,19 @@ export default function StudentDashboard() {
     activities: 0,
     grades: 0,
   });
+
+  const [recentMessage, setRecentMessage] = useState<RecentMessage | null>(
+    null
+  );
+  const [pendingActivity, setPendingActivity] =
+    useState<PendingActivity | null>(null);
+  const [availableQuiz, setAvailableQuiz] = useState<AvailableQuiz | null>(
+    null
+  );
+  const [recentGrade, setRecentGrade] = useState<RecentGrade | null>(null);
+  const [birthdayMessages, setBirthdayMessages] = useState<BirthdayMessage[]>(
+    []
+  );
 
   const [portalButtons, setPortalButtons] = useState<PortalButton[]>([]);
   const [teamSummary, setTeamSummary] = useState<TeamSummary | null>(null);
@@ -413,9 +575,14 @@ export default function StudentDashboard() {
 
       const [
         studentResponse,
-        messagesResponse,
-        activitiesResponse,
-        gradesResponse,
+        messagesCountResponse,
+        recentMessageResponse,
+        activitiesCountResponse,
+        pendingActivityResponse,
+        gradesCountResponse,
+        recentGradeResponse,
+        availableQuizResponse,
+        birthdayMessagesResponse,
       ] = await Promise.all([
         supabase
           .from("students")
@@ -432,7 +599,8 @@ export default function StudentDashboard() {
             status,
             course_name,
             portal_pin,
-            must_change_pin
+            must_change_pin,
+            birth_date
           `
           )
           .eq("id", parsedSession.studentId)
@@ -446,15 +614,53 @@ export default function StudentDashboard() {
           .eq("is_read", false),
 
         supabase
+          .from("student_messages")
+          .select("id, content, sender, is_read, created_at")
+          .eq("student_id", parsedSession.studentId)
+          .eq("sender", "teacher")
+          .order("created_at", { ascending: false })
+          .limit(1),
+
+        supabase
           .from("activities")
           .select("id", { count: "exact", head: true })
           .eq("class_id", parsedSession.classId)
           .eq("archived", false),
 
         supabase
+          .from("activities")
+          .select("id, title, description, due_date")
+          .eq("class_id", parsedSession.classId)
+          .eq("archived", false)
+          .order("due_date", { ascending: true })
+          .limit(1),
+
+        supabase
           .from("grades")
           .select("id", { count: "exact", head: true })
           .eq("student_id", parsedSession.studentId),
+
+        supabase
+          .from("grades")
+          .select("id, title, score, date, feedback")
+          .eq("student_id", parsedSession.studentId)
+          .order("date", { ascending: false })
+          .limit(1),
+
+        supabase
+          .from("quizzes")
+          .select(
+            "id, title, mode, status, result_type, total_questions, created_at"
+          )
+          .eq("class_id", parsedSession.classId)
+          .in("status", ["active", "waiting", "live"])
+          .order("created_at", { ascending: false })
+          .limit(1),
+
+        supabase
+          .from("birthday_messages")
+          .select("id, message")
+          .eq("active", true),
       ]);
 
       if (studentResponse.error || !studentResponse.data) {
@@ -468,10 +674,48 @@ export default function StudentDashboard() {
       setStudent(loadedStudent);
 
       setStats({
-        messages: messagesResponse.count || 0,
-        activities: activitiesResponse.count || 0,
-        grades: gradesResponse.count || 0,
+        messages: messagesCountResponse.count || 0,
+        activities: activitiesCountResponse.count || 0,
+        grades: gradesCountResponse.count || 0,
       });
+
+      if (!recentMessageResponse.error) {
+        const messageData =
+          ((recentMessageResponse.data as RecentMessage[] | null) ?? [])[0] ??
+          null;
+
+        setRecentMessage(messageData);
+      }
+
+      if (!pendingActivityResponse.error) {
+        const activityData =
+          ((pendingActivityResponse.data as PendingActivity[] | null) ??
+            [])[0] ?? null;
+
+        setPendingActivity(activityData);
+      }
+
+      if (!recentGradeResponse.error) {
+        const gradeData =
+          ((recentGradeResponse.data as RecentGrade[] | null) ?? [])[0] ??
+          null;
+
+        setRecentGrade(gradeData);
+      }
+
+      if (!availableQuizResponse.error) {
+        const quizData =
+          ((availableQuizResponse.data as AvailableQuiz[] | null) ?? [])[0] ??
+          null;
+
+        setAvailableQuiz(quizData);
+      }
+
+      if (!birthdayMessagesResponse.error) {
+        setBirthdayMessages(
+          (birthdayMessagesResponse.data as BirthdayMessage[] | null) ?? []
+        );
+      }
 
       await loadStudentInteractions(parsedSession);
 
@@ -622,6 +866,10 @@ export default function StudentDashboard() {
   const mustChangePin =
     student?.must_change_pin === true || session?.mustChangePin === true;
 
+  const birthdayInfo = useMemo(() => {
+    return getBirthdayInfo(student?.birth_date ?? null, firstName, birthdayMessages);
+  }, [student?.birth_date, firstName, birthdayMessages]);
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
@@ -657,21 +905,19 @@ export default function StudentDashboard() {
 
             <div className="relative z-10 flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
               <div className="min-w-0 flex-1">
-                <p className={`text-sm font-semibold ${theme.text}`}>
-                  Olá,
-                </p>
+                <p className={`text-sm font-semibold ${theme.text}`}>Olá,</p>
 
                 <h1 className="mt-1 max-w-4xl truncate text-4xl font-black leading-tight text-white sm:text-5xl xl:text-6xl">
                   {firstName}
                 </h1>
 
-                <p className="mt-3 max-w-2xl text-lg font-bold text-slate-200 sm:text-xl">
-                  Seu espaço digital de aprendizado
+                <p className="mt-3 max-w-2xl text-base font-bold text-slate-200 sm:text-lg">
+                  Seu painel de rotina, avisos e atividades importantes.
                 </p>
 
                 <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
-                  Acompanhe frequência, notas, mensagens, atividades,
-                  gamificação, equipes e recursos da sua turma.
+                  Veja o que precisa de atenção hoje sem se perder em atalhos
+                  repetidos.
                 </p>
 
                 {mustChangePin && (
@@ -722,9 +968,56 @@ export default function StudentDashboard() {
             </div>
           </div>
 
+          {birthdayInfo?.isInBirthdayWeek && (
+            <div className="mt-6 overflow-hidden rounded-[32px] border border-pink-400/30 bg-gradient-to-br from-pink-500/20 via-fuchsia-500/10 to-yellow-500/10 p-6 shadow-2xl shadow-pink-500/10">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[24px] bg-pink-500/20 text-pink-200">
+                    <PartyPopper className="h-8 w-8" />
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-black uppercase tracking-wide text-pink-200">
+                      {birthdayInfo.isToday
+                        ? "Hoje é seu dia!"
+                        : "Sua semana especial"}
+                    </p>
+
+                    <h2 className="mt-2 text-3xl font-black text-white">
+                      {birthdayInfo.isToday
+                        ? `Feliz aniversário, ${firstName}!`
+                        : `${firstName}, seu aniversário está chegando`}
+                    </h2>
+
+                    <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-200">
+                      {birthdayInfo.message}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-slate-950/50 px-5 py-4 text-center">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                    Aniversário
+                  </p>
+
+                  <p className="mt-1 text-xl font-black text-white">
+                    {birthdayInfo.formattedDate}
+                  </p>
+
+                  <p className="mt-1 text-sm font-semibold text-pink-200">
+                    {birthdayInfo.isToday
+                      ? "É hoje!"
+                      : `Faltam ${birthdayInfo.daysUntil} dia(s)`}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <div
-              className={`rounded-[28px] border ${theme.border} bg-gradient-to-br ${theme.softGradient} p-5 shadow-xl ${theme.glow}`}
+            <Link
+              href="/aluno/frequencia"
+              className={`rounded-[28px] border ${theme.border} bg-gradient-to-br ${theme.softGradient} p-5 shadow-xl ${theme.glow} transition hover:-translate-y-1`}
             >
               <div className="flex items-center justify-between">
                 <CalendarCheck className={`h-10 w-10 ${theme.text}`} />
@@ -748,9 +1041,12 @@ export default function StudentDashboard() {
                   }}
                 />
               </div>
-            </div>
+            </Link>
 
-            <div className="rounded-[28px] border border-yellow-500/20 bg-gradient-to-br from-yellow-500/10 to-orange-500/10 p-5 shadow-xl shadow-yellow-500/10">
+            <Link
+              href="/aluno/notas"
+              className="rounded-[28px] border border-yellow-500/20 bg-gradient-to-br from-yellow-500/10 to-orange-500/10 p-5 shadow-xl shadow-yellow-500/10 transition hover:-translate-y-1"
+            >
               <div className="flex items-center justify-between">
                 <Trophy className="h-10 w-10 text-yellow-300" />
 
@@ -766,9 +1062,12 @@ export default function StudentDashboard() {
               <p className="mt-3 text-sm text-slate-300">
                 desempenho escolar
               </p>
-            </div>
+            </Link>
 
-            <div className="rounded-[28px] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 p-5 shadow-xl shadow-cyan-500/10">
+            <Link
+              href="/aluno/mensagens"
+              className="rounded-[28px] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 p-5 shadow-xl shadow-cyan-500/10 transition hover:-translate-y-1"
+            >
               <div className="flex items-center justify-between">
                 <MessageCircle className="h-10 w-10 text-cyan-300" />
 
@@ -784,9 +1083,12 @@ export default function StudentDashboard() {
               <p className="mt-3 text-sm text-slate-300">
                 mensagens não lidas
               </p>
-            </div>
+            </Link>
 
-            <div className="rounded-[28px] border border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-pink-500/10 p-5 shadow-xl shadow-purple-500/10">
+            <Link
+              href="/aluno/atividades"
+              className="rounded-[28px] border border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-pink-500/10 p-5 shadow-xl shadow-purple-500/10 transition hover:-translate-y-1"
+            >
               <div className="flex items-center justify-between">
                 <BookOpen className="h-10 w-10 text-purple-300" />
 
@@ -802,26 +1104,264 @@ export default function StudentDashboard() {
               <p className="mt-3 text-sm text-slate-300">
                 atividades disponíveis
               </p>
-            </div>
+            </Link>
           </div>
 
-          <div className="mt-8 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-            <div className="relative overflow-hidden rounded-[32px] border border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-500/10 via-purple-500/10 to-cyan-500/10 p-6 shadow-2xl shadow-fuchsia-500/10">
-              <div className="absolute -right-20 -top-20 h-44 w-44 rounded-full bg-fuchsia-500/20 blur-3xl" />
-              <div className="absolute -bottom-20 left-10 h-40 w-40 rounded-full bg-cyan-500/10 blur-3xl" />
+          <div className="mt-8 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className="rounded-[32px] border border-slate-800 bg-slate-900/70 p-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className={`text-sm font-semibold ${theme.text}`}>
+                    Seu painel de hoje
+                  </p>
 
-              <div className="relative z-10">
+                  <h2 className="mt-1 text-3xl font-black text-white">
+                    O que merece sua atenção
+                  </h2>
+                </div>
+
+                <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-300">
+                  atualizado agora
+                </span>
+              </div>
+
+              <div className="mt-6 grid gap-3">
+                <Link
+                  href="/aluno/mensagens"
+                  className="group rounded-3xl border border-cyan-500/20 bg-cyan-500/10 p-5 transition hover:border-cyan-300/50 hover:bg-cyan-500/15"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="rounded-2xl bg-cyan-500/15 p-3 text-cyan-300">
+                      <MessageCircle className="h-6 w-6" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-black text-white">
+                          Mensagem recente
+                        </h3>
+
+                        {stats.messages > 0 && (
+                          <span className="rounded-full bg-cyan-500 px-2.5 py-1 text-xs font-black text-slate-950">
+                            {stats.messages} não lida(s)
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-300">
+                        {recentMessage
+                          ? getMessagePreview(recentMessage.content)
+                          : "Nenhuma mensagem recente do professor."}
+                      </p>
+
+                      <div className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-cyan-200">
+                        Ver conversa
+                        <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+
+                <Link
+                  href="/aluno/atividades"
+                  className="group rounded-3xl border border-purple-500/20 bg-purple-500/10 p-5 transition hover:border-purple-300/50 hover:bg-purple-500/15"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="rounded-2xl bg-purple-500/15 p-3 text-purple-300">
+                      <BookOpen className="h-6 w-6" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-black text-white">
+                          Próxima atividade
+                        </h3>
+
+                        {pendingActivity?.due_date && (
+                          <span className="rounded-full bg-purple-500/20 px-2.5 py-1 text-xs font-black text-purple-100">
+                            até {formatShortDate(pendingActivity.due_date)}
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-300">
+                        {pendingActivity
+                          ? pendingActivity.title || "Atividade sem título"
+                          : "Nenhuma atividade pendente no momento."}
+                      </p>
+
+                      <div className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-purple-200">
+                        Abrir atividades
+                        <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+
+                <Link
+                  href="/aluno/quiz"
+                  className="group rounded-3xl border border-fuchsia-500/20 bg-fuchsia-500/10 p-5 transition hover:border-fuchsia-300/50 hover:bg-fuchsia-500/15"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="rounded-2xl bg-fuchsia-500/15 p-3 text-fuchsia-300">
+                      <Zap className="h-6 w-6" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-black text-white">
+                          Quiz disponível
+                        </h3>
+
+                        {availableQuiz && (
+                          <span className="rounded-full bg-fuchsia-500/20 px-2.5 py-1 text-xs font-black text-fuchsia-100">
+                            {getQuizStatusLabel(availableQuiz.status)}
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-300">
+                        {availableQuiz
+                          ? availableQuiz.title || "Quiz sem título"
+                          : "Nenhum quiz disponível para sua turma agora."}
+                      </p>
+
+                      <div className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-fuchsia-200">
+                        Ir para quiz
+                        <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+
+                <Link
+                  href="/aluno/notas"
+                  className="group rounded-3xl border border-yellow-500/20 bg-yellow-500/10 p-5 transition hover:border-yellow-300/50 hover:bg-yellow-500/15"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="rounded-2xl bg-yellow-500/15 p-3 text-yellow-300">
+                      <Trophy className="h-6 w-6" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-black text-white">
+                          Última nota ou feedback
+                        </h3>
+
+                        {recentGrade && (
+                          <span className="rounded-full bg-yellow-500/20 px-2.5 py-1 text-xs font-black text-yellow-100">
+                            {formatScore(recentGrade.score)}
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-300">
+                        {recentGrade
+                          ? `${recentGrade.title || "Nota"} • ${formatDate(
+                              recentGrade.date
+                            )}${
+                              recentGrade.feedback
+                                ? ` — ${recentGrade.feedback}`
+                                : ""
+                            }`
+                          : "Nenhuma nota recente registrada."}
+                      </p>
+
+                      <div className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-yellow-200">
+                        Ver notas
+                        <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-[32px] border border-slate-800 bg-slate-900/70 p-6">
+                <p className={`text-sm font-semibold ${theme.text}`}>
+                  Resumo acadêmico
+                </p>
+
+                <h2 className="mt-2 text-3xl font-black text-white">
+                  Sua situação
+                </h2>
+
+                <div className="mt-6 space-y-5">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-slate-400">Frequência</p>
+                      <p className="text-sm font-black text-white">
+                        {attendanceValue}%
+                      </p>
+                    </div>
+
+                    <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className={`h-full rounded-full bg-gradient-to-r ${theme.gradient}`}
+                        style={{
+                          width: `${Math.min(attendanceValue, 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-slate-400">Média atual</p>
+                      <p className="text-sm font-black text-white">
+                        {averageValue || "-"}
+                      </p>
+                    </div>
+
+                    <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-yellow-400 to-orange-500"
+                        style={{
+                          width: `${Math.min(Number(averageValue) * 10, 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                      <p className="text-xs text-slate-500">Turma</p>
+                      <p className="mt-1 truncate font-black text-white">
+                        {student?.class_name || "Não informada"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                      <p className="text-xs text-slate-500">Status</p>
+                      <p className="mt-1 truncate font-black text-emerald-300">
+                        {student?.status || "Ativo"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                    <p className="text-xs text-slate-500">Curso</p>
+                    <p className="mt-1 truncate font-black text-white">
+                      {student?.course_name || "Não informado"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[32px] border border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-500/10 via-purple-500/10 to-cyan-500/10 p-6 shadow-2xl shadow-fuchsia-500/10">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <div className="inline-flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-2 text-sm font-bold text-fuchsia-200">
                       <Users className="h-4 w-4" />
-                      Minha equipe
+                      Interações da turma
                     </div>
 
-                    <h2 className="mt-4 text-3xl font-black text-white">
+                    <h2 className="mt-4 text-2xl font-black text-white">
                       {teamSummary
                         ? `Equipe ${teamSummary.teamNumber}`
-                        : "Equipe ainda não sorteada"}
+                        : "Sem equipe ativa"}
                     </h2>
 
                     <p className="mt-2 text-sm text-slate-300">
@@ -831,18 +1371,6 @@ export default function StudentDashboard() {
                           )}`
                         : "Quando o professor sortear equipes, seu grupo aparecerá aqui."}
                     </p>
-
-                    {teamSummary?.activityTitle && (
-                      <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3">
-                        <p className="text-xs font-bold uppercase tracking-wide text-fuchsia-200">
-                          Atividade
-                        </p>
-
-                        <p className="mt-1 text-sm font-bold text-white">
-                          {teamSummary.activityTitle}
-                        </p>
-                      </div>
-                    )}
                   </div>
 
                   <Link
@@ -854,9 +1382,21 @@ export default function StudentDashboard() {
                   </Link>
                 </div>
 
+                {teamSummary?.activityTitle && (
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-fuchsia-200">
+                      Atividade
+                    </p>
+
+                    <p className="mt-1 text-sm font-bold text-white">
+                      {teamSummary.activityTitle}
+                    </p>
+                  </div>
+                )}
+
                 {teamSummary && (
-                  <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                    {teamSummary.members.map((member) => {
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                    {teamSummary.members.slice(0, 4).map((member) => {
                       const isMe = member.student_id === session?.studentId;
 
                       return (
@@ -894,7 +1434,7 @@ export default function StudentDashboard() {
 
                       <div>
                         <p className="text-sm font-bold text-cyan-200">
-                          Você também apareceu em sorteio individual
+                          Você apareceu em sorteio individual
                         </p>
 
                         <p className="mt-1 text-xs text-slate-400">
@@ -910,194 +1450,69 @@ export default function StudentDashboard() {
                     </div>
                   </div>
                 )}
-
-                {!teamSummary && !studentDrawSummary && (
-                  <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-300">
-                    Nenhum sorteio ativo encontrado para você no momento.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-[32px] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 p-6 shadow-2xl shadow-cyan-500/10">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <div className="inline-flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-2 text-sm font-bold text-cyan-200">
-                    <Link2 className="h-4 w-4" />
-                    Acessos rápidos
-                  </div>
-
-                  <h2 className="mt-4 text-3xl font-black text-white">
-                    Links do professor
-                  </h2>
-
-                  <p className="mt-2 text-sm text-slate-300">
-                    Materiais, aulas, formulários e plataformas importantes em
-                    um só lugar.
-                  </p>
-                </div>
-
-                <Link
-                  href="/aluno/botoes"
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-bold text-white transition hover:bg-white/15"
-                >
-                  Ver todos
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
               </div>
 
-              {portalButtons.length === 0 ? (
-                <div className="mt-6 rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-300">
-                  O professor ainda não cadastrou links para você ou para sua
-                  turma.
-                </div>
-              ) : (
-                <div className="mt-6 grid gap-3">
-                  {portalButtons.slice(0, 4).map((button) => (
-                    <a
-                      key={button.id}
-                      href={getSafeUrl(button.button_url)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-4 transition hover:border-cyan-400/40 hover:bg-cyan-500/10"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate font-black text-white">
-                            {button.button_label || "Link sem nome"}
-                          </p>
-
-                          {button.is_temporary && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-cyan-200">
-                              <Clock3 className="h-3 w-3" />
-                              Temporário
-                            </span>
-                          )}
-                        </div>
-
-                        <p className="mt-1 line-clamp-1 break-all text-xs text-slate-400">
-                          {button.button_url || "Sem URL"}
-                        </p>
-                      </div>
-
-                      <ExternalLink className="h-5 w-5 shrink-0 text-cyan-300 transition group-hover:translate-x-1" />
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-8">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <p className={`text-sm ${theme.text}`}>
-                  Navegação rápida
-                </p>
-
-                <h2 className="mt-1 text-2xl font-black text-white">
-                  Explorar portal
-                </h2>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {quickActions.map((action) => {
-                const Icon = action.icon;
-
-                return (
-                  <Link
-                    key={action.href}
-                    href={action.href}
-                    className={`group rounded-[28px] border bg-gradient-to-br p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl ${action.color}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex h-14 w-14 items-center justify-center rounded-[24px] bg-white/10">
-                        <Icon className="h-7 w-7" />
-                      </div>
-
-                      <ArrowRight className="h-5 w-5 opacity-60 transition group-hover:translate-x-1" />
+              <div className="rounded-[32px] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 p-6 shadow-2xl shadow-cyan-500/10">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="inline-flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-2 text-sm font-bold text-cyan-200">
+                      <Link2 className="h-4 w-4" />
+                      Links úteis
                     </div>
 
-                    <h3 className="mt-6 text-2xl font-black text-white">
-                      {action.title}
-                    </h3>
-
-                    <p className="mt-2 text-sm text-slate-300">
-                      acessar agora
-                    </p>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="mt-8 grid gap-4 xl:grid-cols-2">
-            <div className="rounded-[32px] border border-slate-800 bg-slate-900/70 p-6">
-              <p className={`text-sm ${theme.text}`}>
-                Informações acadêmicas
-              </p>
-
-              <div className="mt-6 space-y-5">
-                <div>
-                  <p className="text-sm text-slate-400">Turma</p>
-                  <h3 className="mt-1 text-xl font-black text-white">
-                    {student?.class_name || "Não informada"}
-                  </h3>
-                </div>
-
-                <div>
-                  <p className="text-sm text-slate-400">Curso</p>
-                  <h3 className="mt-1 text-xl font-black text-white">
-                    {student?.course_name || "Não informado"}
-                  </h3>
-                </div>
-
-                <div>
-                  <p className="text-sm text-slate-400">Status</p>
-                  <div className="mt-2 inline-flex rounded-2xl bg-emerald-500/20 px-4 py-2 text-sm font-bold text-emerald-300">
-                    {student?.status || "Ativo"}
+                    <h2 className="mt-4 text-2xl font-black text-white">
+                      Recursos do professor
+                    </h2>
                   </div>
+
+                  <Link
+                    href="/aluno/botoes"
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-bold text-white transition hover:bg-white/15"
+                  >
+                    Ver todos
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
                 </div>
-              </div>
-            </div>
 
-            <div className="rounded-[32px] border border-slate-800 bg-slate-900/70 p-6">
-              <p className="text-sm text-purple-300">
-                Continue estudando
-              </p>
+                {portalButtons.length === 0 ? (
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-300">
+                    O professor ainda não cadastrou links para você ou para sua
+                    turma.
+                  </div>
+                ) : (
+                  <div className="mt-5 grid gap-3">
+                    {portalButtons.slice(0, 3).map((button) => (
+                      <a
+                        key={button.id}
+                        href={getSafeUrl(button.button_url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-4 transition hover:border-cyan-400/40 hover:bg-cyan-500/10"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate font-black text-white">
+                              {button.button_label || "Link sem nome"}
+                            </p>
 
-              <h2 className="mt-2 text-3xl font-black text-white">
-                Mantenha seu progresso
-              </h2>
+                            {button.is_temporary && (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-cyan-200">
+                                <Clock3 className="h-3 w-3" />
+                                Temporário
+                              </span>
+                            )}
+                          </div>
 
-              <p className="mt-4 text-sm leading-relaxed text-slate-300">
-                Complete atividades, participe do chat, acompanhe sua
-                frequência, veja sua equipe e use os links enviados pelo
-                professor.
-              </p>
+                          <p className="mt-1 line-clamp-1 break-all text-xs text-slate-400">
+                            {button.button_url || "Sem URL"}
+                          </p>
+                        </div>
 
-              <div className="mt-8 flex flex-wrap gap-3">
-                <Link
-                  href="/aluno/notas"
-                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-semibold text-white transition hover:bg-white/10"
-                >
-                  Ver notas
-                </Link>
-
-                <Link
-                  href="/aluno/frequencia"
-                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-semibold text-white transition hover:bg-white/10"
-                >
-                  Ver frequência
-                </Link>
-
-                <Link
-                  href="/aluno/botoes"
-                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-semibold text-white transition hover:bg-white/10"
-                >
-                  Ver links
-                </Link>
+                        <ExternalLink className="h-5 w-5 shrink-0 text-cyan-300 transition group-hover:translate-x-1" />
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>

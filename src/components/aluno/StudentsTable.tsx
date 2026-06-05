@@ -2,12 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  Edit3,
-  Save,
-  Search,
-  X,
-} from "lucide-react";
+import { Cake, Edit3, Save, Search, X } from "lucide-react";
 
 import { supabase } from "../../lib/supabase";
 import { DeleteStudentButton } from "../DeleteStudentButton";
@@ -31,6 +26,7 @@ type Student = {
   course_id?: string | null;
   course_name: string | null;
   phone: string | null;
+  birth_date?: string | null;
   average: number | null;
   attendance: number | null;
   status: string | null;
@@ -38,6 +34,7 @@ type Student = {
 
 type EditForm = {
   name: string;
+  birth_date: string;
   phone: string;
   email: string;
   class_id: string;
@@ -61,6 +58,7 @@ export function StudentsTable({
   const [savingId, setSavingId] = useState("");
   const [editForm, setEditForm] = useState<EditForm>({
     name: "",
+    birth_date: "",
     phone: "",
     email: "",
     class_id: "",
@@ -102,6 +100,88 @@ export function StudentsTable({
     return numberValue;
   }
 
+  function getBirthDateInputValue(value: string | null | undefined) {
+    if (!value) {
+      return "";
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}/.test(value)) {
+      return value.slice(0, 10);
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+  }
+
+  function formatBirthDate(value: string | null | undefined) {
+    const inputValue = getBirthDateInputValue(value);
+
+    if (!inputValue) {
+      return "Não informada";
+    }
+
+    const date = new Date(`${inputValue}T00:00:00`);
+
+    if (Number.isNaN(date.getTime())) {
+      return "Não informada";
+    }
+
+    return date.toLocaleDateString("pt-BR");
+  }
+
+  function getStudentAge(value: string | null | undefined) {
+    const inputValue = getBirthDateInputValue(value);
+
+    if (!inputValue) {
+      return null;
+    }
+
+    const [year, month, day] = inputValue.split("-").map(Number);
+
+    if (!year || !month || !day) {
+      return null;
+    }
+
+    const today = new Date();
+
+    let age = today.getFullYear() - year;
+
+    const birthdayThisYear = new Date(today.getFullYear(), month - 1, day);
+    const todayStart = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate()
+    );
+
+    if (birthdayThisYear > todayStart) {
+      age -= 1;
+    }
+
+    return age >= 0 ? age : null;
+  }
+
+  function isBirthdayToday(value: string | null | undefined) {
+    const inputValue = getBirthDateInputValue(value);
+
+    if (!inputValue) {
+      return false;
+    }
+
+    const [, month, day] = inputValue.split("-").map(Number);
+    const today = new Date();
+
+    return today.getMonth() + 1 === month && today.getDate() === day;
+  }
+
   const filteredStudents = useMemo(() => {
     const normalizedSearch = normalizeText(search);
 
@@ -110,10 +190,14 @@ export function StudentsTable({
     }
 
     return students.filter((student) => {
+      const age = getStudentAge(student.birth_date);
+
       const searchableText = normalizeText(`
         ${student.name ?? ""}
         ${student.email ?? ""}
         ${student.phone ?? ""}
+        ${student.birth_date ?? ""}
+        ${age !== null ? `${age} anos` : ""}
         ${student.class_name ?? ""}
         ${student.course_name ?? ""}
         ${student.status ?? ""}
@@ -140,6 +224,7 @@ export function StudentsTable({
 
     setEditForm({
       name: student.name ?? "",
+      birth_date: getBirthDateInputValue(student.birth_date),
       phone: student.phone ?? "",
       email: student.email ?? "",
       class_id: selectedClass?.id ?? "",
@@ -156,6 +241,7 @@ export function StudentsTable({
 
     setEditForm({
       name: "",
+      birth_date: "",
       phone: "",
       email: "",
       class_id: "",
@@ -193,6 +279,7 @@ export function StudentsTable({
       .from("students")
       .update({
         name: editForm.name.trim(),
+        birth_date: editForm.birth_date || null,
         phone: editForm.phone.trim() || null,
         email: editForm.email.trim() || null,
 
@@ -224,20 +311,15 @@ export function StudentsTable({
     <div className="mt-8 rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-2xl font-bold">
-            Lista de alunos
-          </h2>
+          <h2 className="text-2xl font-bold">Lista de alunos</h2>
 
           <p className="mt-1 text-sm text-slate-400">
-            Pesquise por nome, telefone, turma, curso ou status.
+            Pesquise por nome, telefone, turma, curso, idade ou status.
           </p>
         </div>
 
         <div className="flex h-12 items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950/50 px-4 md:w-80">
-          <Search
-            size={20}
-            className="text-slate-400"
-          />
+          <Search size={20} className="text-slate-400" />
 
           <input
             value={search}
@@ -253,13 +335,14 @@ export function StudentsTable({
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-slate-800">
-        <table className="w-full min-w-[1050px] border-collapse">
+        <table className="w-full min-w-[1220px] border-collapse">
           <thead className="bg-slate-950/70 text-left text-sm text-slate-400">
             <tr>
               <th className="p-4">Aluno</th>
               <th className="p-4">Turma</th>
               <th className="p-4">Curso</th>
               <th className="p-4">Telefone</th>
+              <th className="p-4">Nascimento / idade</th>
               <th className="p-4">Média</th>
               <th className="p-4">Frequência</th>
               <th className="p-4">Status</th>
@@ -270,14 +353,22 @@ export function StudentsTable({
           <tbody>
             {filteredStudents.map((student) => {
               const isEditing = editingId === student.id;
+              const age = getStudentAge(student.birth_date);
+              const birthdayToday = isBirthdayToday(student.birth_date);
 
               return (
                 <Fragment key={student.id}>
                   <tr className="border-t border-slate-800 transition hover:bg-white/[0.03]">
                     <td className="p-4">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-violet-500 font-bold">
-                          {getStudentInitial(student)}
+                        <div
+                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full font-bold ${
+                            birthdayToday
+                              ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20"
+                              : "bg-violet-500 text-white"
+                          }`}
+                        >
+                          {birthdayToday ? <Cake size={19} /> : getStudentInitial(student)}
                         </div>
 
                         <div className="min-w-0">
@@ -292,6 +383,13 @@ export function StudentsTable({
                           <p className="max-w-[220px] truncate text-sm text-slate-400">
                             {student.email || "E-mail não informado"}
                           </p>
+
+                          {birthdayToday && (
+                            <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-pink-500/10 px-2 py-1 text-xs font-bold text-pink-200">
+                              <Cake size={12} />
+                              Aniversário hoje
+                            </p>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -306,6 +404,18 @@ export function StudentsTable({
 
                     <td className="p-4 text-slate-300">
                       {student.phone || "-"}
+                    </td>
+
+                    <td className="p-4 text-slate-300">
+                      <div>
+                        <p className="font-semibold text-white">
+                          {age !== null ? `${age} anos` : "Idade não informada"}
+                        </p>
+
+                        <p className="mt-1 text-xs text-slate-500">
+                          {formatBirthDate(student.birth_date)}
+                        </p>
+                      </div>
                     </td>
 
                     <td className="p-4 font-semibold">
@@ -338,7 +448,7 @@ export function StudentsTable({
 
                   {isEditing && (
                     <tr className="border-t border-slate-800 bg-slate-950/40">
-                      <td colSpan={8} className="p-4">
+                      <td colSpan={9} className="p-4">
                         <div className="rounded-3xl border border-blue-500/20 bg-blue-500/5 p-5">
                           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                             <div>
@@ -370,6 +480,25 @@ export function StudentsTable({
                               placeholder="Nome do aluno"
                               className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-400"
                             />
+
+                            <div>
+                              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                Data de nascimento
+                              </label>
+
+                              <input
+                                type="date"
+                                value={editForm.birth_date}
+                                onChange={(event) =>
+                                  updateEditForm(
+                                    "birth_date",
+                                    event.target.value
+                                  )
+                                }
+                                style={{ colorScheme: "dark" }}
+                                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-blue-400"
+                              />
+                            </div>
 
                             <input
                               value={editForm.phone}
@@ -447,7 +576,7 @@ export function StudentsTable({
                               onChange={(event) =>
                                 updateEditForm("status", event.target.value)
                               }
-                              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-400"
+                              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-400 xl:col-span-4"
                             >
                               <option value="Regular">Regular</option>
                               <option value="Atenção">Atenção</option>
@@ -480,11 +609,7 @@ export function StudentsTable({
   );
 }
 
-function StatusBadge({
-  status,
-}: {
-  status: string;
-}) {
+function StatusBadge({ status }: { status: string }) {
   const styles =
     status === "Excelente"
       ? "bg-emerald-500/10 text-emerald-300"
@@ -493,9 +618,7 @@ function StatusBadge({
       : "bg-blue-500/10 text-blue-300";
 
   return (
-    <span
-      className={`rounded-full px-3 py-1 text-sm font-medium ${styles}`}
-    >
+    <span className={`rounded-full px-3 py-1 text-sm font-medium ${styles}`}>
       {status}
     </span>
   );

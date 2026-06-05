@@ -22,6 +22,7 @@ export function NewStudentForm({
   courses: CourseItem[];
 }) {
   const [name, setName] = useState("");
+  const [birthDate, setBirthDate] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
 
@@ -58,6 +59,7 @@ export function NewStudentForm({
 
     const { error } = await supabase.from("students").insert({
       name: name.trim(),
+      birth_date: birthDate || null,
       email: email.trim() || null,
       phone: phone.trim() || null,
 
@@ -92,6 +94,7 @@ export function NewStudentForm({
     });
 
     setName("");
+    setBirthDate("");
     setEmail("");
     setPhone("");
     setClassId("");
@@ -138,6 +141,20 @@ export function NewStudentForm({
           onChange={(event) => setName(event.target.value)}
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         />
+
+        <div>
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Data de nascimento opcional
+          </label>
+
+          <input
+            type="date"
+            value={birthDate}
+            onChange={(event) => setBirthDate(event.target.value)}
+            style={{ colorScheme: "dark" }}
+            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-violet-400"
+          />
+        </div>
 
         <input
           placeholder="Telefone opcional"
@@ -201,7 +218,7 @@ export function NewStudentForm({
         <select
           value={status}
           onChange={(event) => setStatus(event.target.value)}
-          className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+          className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400 md:col-span-2"
         >
           <option value="Regular">Regular</option>
           <option value="Atenção">Atenção</option>

@@ -7,19 +7,17 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  Clock3,
+  Crown,
   Gamepad2,
   Loader2,
+  PartyPopper,
   Play,
   Rocket,
   Sparkles,
   Trophy,
   XCircle,
   Zap,
-  Crown,
-  Star,
-  Medal,
-  PartyPopper,
-  CircleDot,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -39,10 +37,12 @@ type Quiz = {
   mode: "assignment" | "live" | string | null;
   theme: string | null;
   status: string | null;
+  result_type: "grade" | "ranking" | string | null;
   total_questions: number | null;
   grade_weight: number | null;
   time_per_question: number | null;
   current_question_order: number | null;
+  current_question_started_at: string | null;
 };
 
 type QuizQuestion = {
@@ -73,6 +73,19 @@ type QuizParticipant = {
   emoji: string | null;
 };
 
+type QuizAnswer = {
+  id: string;
+  attempt_id?: string | null;
+  quiz_id: string;
+  question_id: string;
+  student_id: string;
+  selected_option_id: string;
+  is_correct: boolean;
+  response_time_ms: number | null;
+  points: number | null;
+  answered_at: string | null;
+};
+
 type SelectedAnswers = Record<string, string>;
 
 type RankingItem = {
@@ -81,6 +94,7 @@ type RankingItem = {
   nickname: string;
   emoji: string;
   correctAnswers: number;
+  answeredQuestions: number;
   points: number;
 };
 
@@ -164,7 +178,6 @@ function getThemeClasses(theme: string | null) {
     return {
       page: "from-purple-950 via-slate-950 to-fuchsia-950",
       accent: "bg-fuchsia-500",
-      accentHover: "hover:bg-fuchsia-400",
       border: "border-fuchsia-500/30",
       soft: "bg-fuchsia-500/10",
       text: "text-fuchsia-200",
@@ -177,7 +190,6 @@ function getThemeClasses(theme: string | null) {
     return {
       page: "from-orange-950 via-slate-950 to-yellow-950",
       accent: "bg-orange-500",
-      accentHover: "hover:bg-orange-400",
       border: "border-orange-500/30",
       soft: "bg-orange-500/10",
       text: "text-orange-200",
@@ -190,7 +202,6 @@ function getThemeClasses(theme: string | null) {
     return {
       page: "from-blue-950 via-slate-950 to-cyan-950",
       accent: "bg-blue-500",
-      accentHover: "hover:bg-blue-400",
       border: "border-blue-500/30",
       soft: "bg-blue-500/10",
       text: "text-blue-200",
@@ -202,7 +213,6 @@ function getThemeClasses(theme: string | null) {
   return {
     page: "from-cyan-950 via-slate-950 to-violet-950",
     accent: "bg-cyan-500",
-    accentHover: "hover:bg-cyan-400",
     border: "border-cyan-500/30",
     soft: "bg-cyan-500/10",
     text: "text-cyan-200",
@@ -235,6 +245,57 @@ function getErrorMessage(error: unknown) {
   return "Não foi possível concluir a operação.";
 }
 
+function getRemainingSeconds(quiz: Quiz | null | undefined, now: number) {
+  if (!quiz) return 0;
+
+  const totalSeconds = Number(quiz.time_per_question ?? 45);
+
+  if (quiz.status !== "live" || !quiz.current_question_started_at) {
+    return totalSeconds;
+  }
+
+  const startedAt = new Date(quiz.current_question_started_at).getTime();
+
+  if (Number.isNaN(startedAt)) {
+    return totalSeconds;
+  }
+
+  const elapsedSeconds = Math.floor((now - startedAt) / 1000);
+
+  return Math.max(0, totalSeconds - elapsedSeconds);
+}
+
+function getTimerPercent(quiz: Quiz | null | undefined, now: number) {
+  if (!quiz) return 0;
+
+  const totalSeconds = Number(quiz.time_per_question ?? 45);
+  const remaining = getRemainingSeconds(quiz, now);
+
+  if (totalSeconds <= 0) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, (remaining / totalSeconds) * 100));
+}
+
+function getResponseTimeMs(quiz: Quiz | null | undefined) {
+  if (!quiz?.current_question_started_at) {
+    return 0;
+  }
+
+  const startedAt = new Date(quiz.current_question_started_at).getTime();
+
+  if (Number.isNaN(startedAt)) {
+    return 0;
+  }
+
+  return Math.max(0, Date.now() - startedAt);
+}
+
+function isRankingOnlyQuiz(quiz: Quiz | null | undefined) {
+  return quiz?.mode === "live" && quiz.result_type === "ranking";
+}
+
 export default function StudentQuizzes() {
   const router = useRouter();
 
@@ -245,7 +306,7 @@ export default function StudentQuizzes() {
   >({});
   const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
   const [participants, setParticipants] = useState<QuizParticipant[]>([]);
-  const [rankingAnswers, setRankingAnswers] = useState<any[]>([]);
+  const [rankingAnswers, setRankingAnswers] = useState<QuizAnswer[]>([]);
 
   const [selectedQuizId, setSelectedQuizId] = useState("");
   const [selectedAnswers, setSelectedAnswers] = useState<SelectedAnswers>({});
@@ -257,6 +318,10 @@ export default function StudentQuizzes() {
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [sendingLiveAnswer, setSendingLiveAnswer] = useState(false);
+  const [finalizingLiveGrade, setFinalizingLiveGrade] = useState(false);
+
+  const [now, setNow] = useState(Date.now());
 
   const [message, setMessage] = useState<{
     type: "success" | "error";
@@ -337,8 +402,12 @@ export default function StudentQuizzes() {
       }
 
       if (!answersResponse.error) {
-        setRankingAnswers(answersResponse.data ?? []);
+        setRankingAnswers((answersResponse.data as QuizAnswer[] | null) ?? []);
       }
+    } else {
+      setQuestionsByQuiz({});
+      setParticipants([]);
+      setRankingAnswers([]);
     }
 
     setLoading(false);
@@ -361,9 +430,15 @@ export default function StudentQuizzes() {
   }, [router]);
 
   useEffect(() => {
-    if (!session) {
-      return;
-    }
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
 
     const channel = supabase
       .channel(`student_quiz_realtime_${session.studentId}`)
@@ -394,14 +469,29 @@ export default function StudentQuizzes() {
         },
         () => loadData(session)
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "quiz_attempts",
+        },
+        () => loadData(session)
+      )
       .subscribe();
 
+    const fallbackPolling = setInterval(() => {
+      loadData(session);
+    }, 3000);
+
     return () => {
+      clearInterval(fallbackPolling);
       supabase.removeChannel(channel);
     };
   }, [session]);
 
   const selectedQuiz = quizzes.find((quiz) => quiz.id === selectedQuizId);
+
   const selectedQuestions = selectedQuiz
     ? questionsByQuiz[selectedQuiz.id] ?? []
     : [];
@@ -410,19 +500,56 @@ export default function StudentQuizzes() {
     ? attempts.find((attempt) => attempt.quiz_id === selectedQuiz.id)
     : null;
 
-  const currentQuestion =
+  const isLiveMode = selectedQuiz?.mode === "live";
+  const rankingOnly = isRankingOnlyQuiz(selectedQuiz);
+
+  const assignmentQuestion =
     selectedQuestions[currentQuestionIndex] ?? selectedQuestions[0] ?? null;
+
+  const liveQuestion = selectedQuiz
+    ? selectedQuestions.find(
+        (question) =>
+          question.question_order ===
+          Number(selectedQuiz.current_question_order ?? 0)
+      ) ?? null
+    : null;
+
+  const currentQuestion = isLiveMode ? liveQuestion : assignmentQuestion;
 
   const alreadyAnswered = Boolean(selectedQuizAttempt);
 
+  const liveAnswerForCurrentQuestion =
+    session && selectedQuiz && currentQuestion
+      ? rankingAnswers.find(
+          (answer) =>
+            answer.quiz_id === selectedQuiz.id &&
+            answer.question_id === currentQuestion.id &&
+            answer.student_id === session.studentId
+        )
+      : null;
+
   const currentSelectedOptionId = currentQuestion
-    ? selectedAnswers[currentQuestion.id]
+    ? liveAnswerForCurrentQuestion?.selected_option_id ||
+      selectedAnswers[currentQuestion.id] ||
+      ""
     : "";
 
   const progressPercent =
     selectedQuestions.length > 0
-      ? ((currentQuestionIndex + 1) / selectedQuestions.length) * 100
+      ? isLiveMode
+        ? ((selectedQuiz?.current_question_order ?? 0) /
+            selectedQuestions.length) *
+          100
+        : ((currentQuestionIndex + 1) / selectedQuestions.length) * 100
       : 0;
+
+  const remainingSeconds = getRemainingSeconds(selectedQuiz, now);
+  const timerPercent = getTimerPercent(selectedQuiz, now);
+  const timeExpired =
+    Boolean(selectedQuiz) &&
+    selectedQuiz?.mode === "live" &&
+    selectedQuiz?.status === "live" &&
+    remainingSeconds <= 0;
 
   const ranking = useMemo<RankingItem[]>(() => {
     if (!selectedQuiz) {
@@ -443,6 +570,7 @@ export default function StudentQuizzes() {
           student_name: participant.student_name,
           nickname: participant.nickname || participant.student_name,
           emoji: participant.emoji || "🚀",
+          answeredQuestions: answers.length,
           correctAnswers: answers.filter((answer) => answer.is_correct).length,
           points: answers.reduce(
             (sum, answer) => sum + Number(answer.points ?? 0),
@@ -462,9 +590,7 @@ export default function StudentQuizzes() {
       .select("score")
       .eq("student_id", studentId);
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     const scores =
       data
@@ -485,9 +611,7 @@ export default function StudentQuizzes() {
       .update({ average })
       .eq("id", studentId);
 
-    if (updateStudentError) {
-      throw updateStudentError;
-    }
+    if (updateStudentError) throw updateStudentError;
   }
 
   async function joinQuiz(quiz: Quiz) {
@@ -527,10 +651,8 @@ export default function StudentQuizzes() {
     await loadData(session);
   }
 
-  async function finishQuiz() {
-    if (!session || !selectedQuiz) {
-      return;
-    }
+  async function finishAssignmentQuiz() {
+    if (!session || !selectedQuiz) return;
 
     setSubmitting(true);
     setMessage(null);
@@ -549,7 +671,9 @@ export default function StudentQuizzes() {
           student_id: session.studentId,
           selected_option_id: selectedOptionId,
           is_correct: isCorrect,
+          response_time_ms: 0,
           points: isCorrect ? 1000 : 0,
+          answered_at: new Date().toISOString(),
         };
       });
 
@@ -591,9 +715,7 @@ export default function StudentQuizzes() {
         .from("quiz_answers")
         .insert(answersWithAttempt);
 
-      if (answersError) {
-        throw answersError;
-      }
+      if (answersError) throw answersError;
 
       const { error: gradeError } = await supabase.from("grades").insert({
         student_id: session.studentId,
@@ -601,11 +723,11 @@ export default function StudentQuizzes() {
         score,
         date: getTodayDate(),
         feedback: `Nota gerada automaticamente pelo Quiz. Acertos: ${correctAnswers}/${totalQuestions}.`,
+        source_type: "quiz",
+        source_id: selectedQuiz.id,
       });
 
-      if (gradeError) {
-        throw gradeError;
-      }
+      if (gradeError) throw gradeError;
 
       await recalculateStudentAverage(session.studentId);
 
@@ -625,6 +747,163 @@ export default function StudentQuizzes() {
     }
   }
 
+  async function sendLiveAnswer(optionId: string) {
+    if (!session || !selectedQuiz || !currentQuestion) return;
+    if (liveAnswerForCurrentQuestion) return;
+
+    if (timeExpired) {
+      setMessage({
+        type: "error",
+        text: "O tempo desta pergunta acabou. Aguarde a próxima.",
+      });
+      return;
+    }
+
+    setSendingLiveAnswer(true);
+    setMessage(null);
+
+    try {
+      const isCorrect = optionId === currentQuestion.correct_option_id;
+      const responseTimeMs = getResponseTimeMs(selectedQuiz);
+      const remaining = getRemainingSeconds(selectedQuiz, Date.now());
+      const speedBonus = Math.max(0, remaining * 10);
+      const points = isCorrect ? 1000 + speedBonus : 0;
+
+      const { error } = await supabase.from("quiz_answers").insert({
+        attempt_id: null,
+        quiz_id: selectedQuiz.id,
+        question_id: currentQuestion.id,
+        student_id: session.studentId,
+        selected_option_id: optionId,
+        is_correct: isCorrect,
+        response_time_ms: responseTimeMs,
+        points,
+        answered_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+
+      setMessage({
+        type: "success",
+        text: "Resposta enviada. Aguarde o professor liberar a próxima pergunta.",
+      });
+
+      await loadData(session);
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: `Erro ao enviar resposta: ${getErrorMessage(error)}`,
+      });
+    } finally {
+      setSendingLiveAnswer(false);
+    }
+  }
+
+  async function finalizeLiveQuizGrade() {
+    if (!session || !selectedQuiz || selectedQuiz.mode !== "live") return;
+    if (selectedQuiz.result_type === "ranking") return;
+    if (selectedQuizAttempt || finalizingLiveGrade) return;
+
+    setFinalizingLiveGrade(true);
+
+    try {
+      const totalQuestions = selectedQuestions.length;
+      const gradeWeight = Number(selectedQuiz.grade_weight ?? 10);
+
+      const myAnswers = rankingAnswers.filter(
+        (answer) =>
+          answer.quiz_id === selectedQuiz.id &&
+          answer.student_id === session.studentId
+      );
+
+      const correctAnswers = myAnswers.filter((answer) => answer.is_correct)
+        .length;
+
+      const totalPoints = myAnswers.reduce(
+        (sum, answer) => sum + Number(answer.points ?? 0),
+        0
+      );
+
+      const score = getScore({
+        correctAnswers,
+        totalQuestions,
+        gradeWeight,
+      });
+
+      const { data: createdAttempt, error: attemptError } = await supabase
+        .from("quiz_attempts")
+        .insert({
+          quiz_id: selectedQuiz.id,
+          student_id: session.studentId,
+          class_id: session.classId,
+          mode: "live",
+          score,
+          total_questions: totalQuestions,
+          correct_answers: correctAnswers,
+          total_points: totalPoints,
+          finished_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (attemptError || !createdAttempt?.id) {
+        throw attemptError || new Error("Não foi possível registrar sua nota.");
+      }
+
+      const { error: updateAnswersError } = await supabase
+        .from("quiz_answers")
+        .update({
+          attempt_id: createdAttempt.id,
+        })
+        .eq("quiz_id", selectedQuiz.id)
+        .eq("student_id", session.studentId);
+
+      if (updateAnswersError) throw updateAnswersError;
+
+      const { error: gradeError } = await supabase.from("grades").insert({
+        student_id: session.studentId,
+        title: `Quiz: ${selectedQuiz.title}`,
+        score,
+        date: getTodayDate(),
+        feedback: `Nota gerada automaticamente pelo Quiz ao vivo. Acertos: ${correctAnswers}/${totalQuestions}. Pontuação: ${totalPoints} pts.`,
+        source_type: "quiz",
+        source_id: selectedQuiz.id,
+      });
+
+      if (gradeError) throw gradeError;
+
+      await recalculateStudentAverage(session.studentId);
+      await loadData(session);
+    } catch (error) {
+      console.error("Erro ao finalizar nota do quiz ao vivo:", error);
+    } finally {
+      setFinalizingLiveGrade(false);
+    }
+  }
+
+  useEffect(() => {
+    if (
+      !session ||
+      !selectedQuiz ||
+      selectedQuiz.mode !== "live" ||
+      selectedQuiz.status !== "finished" ||
+      selectedQuiz.result_type === "ranking" ||
+      selectedQuizAttempt ||
+      finalizingLiveGrade
+    ) {
+      return;
+    }
+
+    finalizeLiveQuizGrade();
+  }, [
+    session,
+    selectedQuiz?.id,
+    selectedQuiz?.status,
+    selectedQuiz?.result_type,
+    selectedQuizAttempt?.id,
+    finalizingLiveGrade,
+  ]);
+
   function selectAnswer(questionId: string, optionId: string) {
     setSelectedAnswers((current) => ({
       ...current,
@@ -632,6 +911,17 @@ export default function StudentQuizzes() {
     }));
 
     setMessage(null);
+  }
+
+  function handleOptionClick(optionId: string) {
+    if (!currentQuestion) return;
+
+    if (isLiveMode) {
+      sendLiveAnswer(optionId);
+      return;
+    }
+
+    selectAnswer(currentQuestion.id, optionId);
   }
 
   function goToNextQuestion() {
@@ -648,7 +938,7 @@ export default function StudentQuizzes() {
     setMessage(null);
 
     if (currentQuestionIndex >= selectedQuestions.length - 1) {
-      finishQuiz();
+      finishAssignmentQuiz();
       return;
     }
 
@@ -745,8 +1035,8 @@ export default function StudentQuizzes() {
                     </h2>
 
                     <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
-                      O apelido aparece no ranking, mas seu nome real continua
-                      registrado no sistema para a correção e a nota.
+                      No modo atividade você responde sozinho. No modo sala de
+                      aula, aguarde o professor liberar cada pergunta.
                     </p>
                   </div>
                 </div>
@@ -800,6 +1090,7 @@ export default function StudentQuizzes() {
                   );
 
                   const quizTheme = getThemeClasses(quiz.theme);
+                  const isRankingOnly = isRankingOnlyQuiz(quiz);
 
                   return (
                     <div
@@ -827,7 +1118,23 @@ export default function StudentQuizzes() {
                               </span>
 
                               <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300">
-                                {quiz.status}
+                                {quiz.status === "waiting"
+                                  ? "Sala aberta"
+                                  : quiz.status === "live"
+                                  ? "Ao vivo"
+                                  : quiz.status === "finished"
+                                  ? "Finalizado"
+                                  : "Ativo"}
+                              </span>
+
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-bold ${
+                                  isRankingOnly
+                                    ? "bg-yellow-500/10 text-yellow-200"
+                                    : "bg-emerald-500/10 text-emerald-200"
+                                }`}
+                              >
+                                {isRankingOnly ? "Ranking" : "Vale nota"}
                               </span>
                             </div>
 
@@ -865,9 +1172,12 @@ export default function StudentQuizzes() {
                             ) : (
                               <Play size={18} />
                             )}
+
                             {quiz.status === "finished"
                               ? "Quiz finalizado"
-                              : "Entrar no quiz"}
+                              : quiz.mode === "live"
+                              ? "Entrar na sala"
+                              : "Responder atividade"}
                           </button>
                         )}
                       </div>
@@ -876,26 +1186,6 @@ export default function StudentQuizzes() {
                 })}
               </div>
             )}
-          </div>
-        ) : alreadyAnswered ? (
-          <div className="rounded-[36px] border border-emerald-500/20 bg-gradient-to-br from-emerald-500/20 to-green-500/10 p-8 text-center shadow-2xl shadow-emerald-500/10">
-            <PartyPopper className="mx-auto h-16 w-16 text-emerald-300" />
-
-            <h2 className="mt-4 text-4xl font-black">Quiz concluído!</h2>
-
-            <p className="mt-3 text-lg text-emerald-100">
-              Sua nota foi{" "}
-              <strong>{Number(selectedQuizAttempt?.score ?? 0).toFixed(1)}</strong>
-              .
-            </p>
-
-            <button
-              type="button"
-              onClick={() => setSelectedQuizId("")}
-              className="mt-6 rounded-2xl bg-emerald-500 px-6 py-4 font-black text-white transition hover:scale-[1.02] hover:bg-emerald-400"
-            >
-              Voltar aos quizzes
-            </button>
           </div>
         ) : selectedQuiz.mode === "live" && selectedQuiz.status === "waiting" ? (
           <div className="rounded-[36px] border border-yellow-500/20 bg-gradient-to-br from-yellow-500/20 to-orange-500/10 p-8 text-center shadow-2xl shadow-yellow-500/10">
@@ -928,6 +1218,27 @@ export default function StudentQuizzes() {
                 O ranking mostra a participação desta rodada. O mais importante
                 é aprender, evoluir e tentar de novo.
               </p>
+
+              {rankingOnly && (
+                <div className="mx-auto mt-5 max-w-md rounded-2xl border border-yellow-400/20 bg-yellow-500/10 px-4 py-3 text-sm font-bold text-yellow-100">
+                  Este quiz foi configurado apenas como ranking. Nenhuma nota
+                  será lançada.
+                </div>
+              )}
+
+              {!rankingOnly && finalizingLiveGrade && (
+                <div className="mx-auto mt-5 flex max-w-sm items-center justify-center gap-2 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-sm font-bold text-cyan-100">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Registrando sua nota...
+                </div>
+              )}
+
+              {!rankingOnly && selectedQuizAttempt && (
+                <div className="mx-auto mt-5 max-w-sm rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-emerald-100">
+                  Sua nota foi{" "}
+                  <strong>{Number(selectedQuizAttempt.score).toFixed(1)}</strong>
+                </div>
+              )}
             </div>
 
             <div className="mt-8 space-y-3">
@@ -961,7 +1272,8 @@ export default function StudentQuizzes() {
                       </p>
 
                       <p className="text-sm text-slate-400">
-                        {item.correctAnswers} acerto(s)
+                        {item.correctAnswers} acerto(s) •{" "}
+                        {item.answeredQuestions} respondida(s)
                       </p>
                     </div>
                   </div>
@@ -981,6 +1293,26 @@ export default function StudentQuizzes() {
               Voltar
             </button>
           </div>
+        ) : alreadyAnswered ? (
+          <div className="rounded-[36px] border border-emerald-500/20 bg-gradient-to-br from-emerald-500/20 to-green-500/10 p-8 text-center shadow-2xl shadow-emerald-500/10">
+            <PartyPopper className="mx-auto h-16 w-16 text-emerald-300" />
+
+            <h2 className="mt-4 text-4xl font-black">Quiz concluído!</h2>
+
+            <p className="mt-3 text-lg text-emerald-100">
+              Sua nota foi{" "}
+              <strong>{Number(selectedQuizAttempt?.score ?? 0).toFixed(1)}</strong>
+              .
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setSelectedQuizId("")}
+              className="mt-6 rounded-2xl bg-emerald-500 px-6 py-4 font-black text-white transition hover:scale-[1.02] hover:bg-emerald-400"
+            >
+              Voltar aos quizzes
+            </button>
+          </div>
         ) : currentQuestion ? (
           <div className="grid gap-5">
             <div className="overflow-hidden rounded-[36px] border border-white/10 bg-slate-900/80 shadow-2xl backdrop-blur">
@@ -988,10 +1320,57 @@ export default function StudentQuizzes() {
                 <div
                   className="h-full bg-white/80 transition-all duration-500"
                   style={{
-                    width: `${progressPercent}%`,
+                    width: `${Math.max(0, Math.min(100, progressPercent))}%`,
                   }}
                 />
               </div>
+
+              {isLiveMode && (
+                <div className="border-b border-white/10 bg-slate-950/50 px-5 py-4 sm:px-7">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`flex h-12 w-12 items-center justify-center rounded-2xl ${
+                          timeExpired
+                            ? "bg-red-500/20 text-red-200"
+                            : "bg-yellow-500/20 text-yellow-200"
+                        }`}
+                      >
+                        <Clock3 className="h-6 w-6" />
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                          Tempo da pergunta
+                        </p>
+
+                        <p
+                          className={`text-2xl font-black ${
+                            remainingSeconds <= 10
+                              ? "text-red-300"
+                              : "text-yellow-200"
+                          }`}
+                        >
+                          {remainingSeconds}s
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="h-4 flex-1 overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          remainingSeconds <= 10
+                            ? "bg-red-500"
+                            : "bg-yellow-400"
+                        }`}
+                        style={{
+                          width: `${timerPercent}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="p-5 sm:p-7">
                 <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -1001,14 +1380,24 @@ export default function StudentQuizzes() {
                         className={`inline-flex items-center gap-2 rounded-full border ${theme.border} ${theme.soft} px-4 py-2 text-xs font-black uppercase tracking-wide ${theme.text}`}
                       >
                         <Zap className="h-4 w-4" />
-                        Pergunta {currentQuestionIndex + 1} de{" "}
-                        {selectedQuestions.length}
+                        Pergunta{" "}
+                        {isLiveMode
+                          ? selectedQuiz.current_question_order ?? 0
+                          : currentQuestionIndex + 1}{" "}
+                        de {selectedQuestions.length}
                       </span>
 
                       {currentSelectedOptionId && (
                         <span className="inline-flex animate-pulse items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-500/15 px-4 py-2 text-xs font-black uppercase tracking-wide text-emerald-200">
                           <CheckCircle2 className="h-4 w-4" />
-                          Resposta selecionada
+                          Resposta enviada
+                        </span>
+                      )}
+
+                      {timeExpired && !currentSelectedOptionId && (
+                        <span className="inline-flex items-center gap-2 rounded-full border border-red-300/30 bg-red-500/15 px-4 py-2 text-xs font-black uppercase tracking-wide text-red-200">
+                          <XCircle className="h-4 w-4" />
+                          Tempo esgotado
                         </span>
                       )}
                     </div>
@@ -1031,22 +1420,27 @@ export default function StudentQuizzes() {
 
                 <div className="grid gap-4 md:grid-cols-2">
                   {currentQuestion.options.map((option, index) => {
-                    const selected =
-                      selectedAnswers[currentQuestion.id] === option.id;
-
+                    const selected = currentSelectedOptionId === option.id;
                     const visual = optionVisuals[index] ?? optionVisuals[0];
+
+                    const disabled =
+                      sendingLiveAnswer ||
+                      (isLiveMode &&
+                        (Boolean(liveAnswerForCurrentQuestion) ||
+                          timeExpired));
 
                     return (
                       <button
                         key={option.id}
                         type="button"
-                        onClick={() =>
-                          selectAnswer(currentQuestion.id, option.id)
-                        }
-                        className={`group relative min-h-[138px] overflow-hidden rounded-[32px] border p-5 text-left transition-all duration-300 hover:-translate-y-1 active:scale-[0.98] ${
+                        onClick={() => handleOptionClick(option.id)}
+                        disabled={disabled}
+                        className={`group relative min-h-[138px] overflow-hidden rounded-[32px] border p-5 text-left transition-all duration-300 hover:-translate-y-1 active:scale-[0.98] disabled:cursor-not-allowed ${
                           selected
                             ? `scale-[1.03] ring-4 ${visual.selected}`
-                            : `${visual.idle}`
+                            : `${visual.idle} ${
+                                disabled ? "opacity-60 grayscale" : ""
+                              }`
                         }`}
                       >
                         <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl transition group-hover:bg-white/20" />
@@ -1086,7 +1480,11 @@ export default function StudentQuizzes() {
                               }`}
                             >
                               {selected
-                                ? "Essa é sua escolha"
+                                ? isLiveMode
+                                  ? "Resposta enviada"
+                                  : "Essa é sua escolha"
+                                : isLiveMode && disabled
+                                ? "Aguarde a próxima"
                                 : "Toque para escolher"}
                             </span>
                           </div>
@@ -1098,7 +1496,20 @@ export default function StudentQuizzes() {
 
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-slate-300">
-                    {currentSelectedOptionId ? (
+                    {isLiveMode ? (
+                      currentSelectedOptionId ? (
+                        <span className="font-semibold text-emerald-200">
+                          Resposta enviada. Aguarde o professor liberar a
+                          próxima pergunta.
+                        </span>
+                      ) : timeExpired ? (
+                        <span className="font-semibold text-red-200">
+                          O tempo acabou. Aguarde a próxima pergunta.
+                        </span>
+                      ) : (
+                        <span>Escolha uma alternativa antes do tempo acabar.</span>
+                      )
+                    ) : currentSelectedOptionId ? (
                       <span className="font-semibold text-emerald-200">
                         Resposta marcada. Agora você pode avançar.
                       </span>
@@ -1107,52 +1518,51 @@ export default function StudentQuizzes() {
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={goToNextQuestion}
-                    disabled={submitting || !currentSelectedOptionId}
-                    className={`flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r ${theme.gradient} px-7 py-4 text-lg font-black text-white shadow-2xl ${theme.glow} transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:grayscale disabled:opacity-40`}
-                  >
-                    {submitting ? (
-                      <Loader2 className="animate-spin" size={20} />
-                    ) : currentQuestionIndex >= selectedQuestions.length - 1 ? (
-                      <Trophy size={20} />
-                    ) : (
-                      <ArrowRight size={20} />
-                    )}
+                  {!isLiveMode && (
+                    <button
+                      type="button"
+                      onClick={goToNextQuestion}
+                      disabled={submitting || !currentSelectedOptionId}
+                      className={`flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r ${theme.gradient} px-7 py-4 text-lg font-black text-white shadow-2xl ${theme.glow} transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:grayscale disabled:opacity-40`}
+                    >
+                      {submitting ? (
+                        <Loader2 className="animate-spin" size={20} />
+                      ) : currentQuestionIndex >=
+                        selectedQuestions.length - 1 ? (
+                        <Trophy size={20} />
+                      ) : (
+                        <ArrowRight size={20} />
+                      )}
 
-                    {currentQuestionIndex >= selectedQuestions.length - 1
-                      ? "Finalizar quiz"
-                      : "Próxima pergunta"}
-                  </button>
+                      {currentQuestionIndex >= selectedQuestions.length - 1
+                        ? "Finalizar quiz"
+                        : "Próxima pergunta"}
+                    </button>
+                  )}
+
+                  {isLiveMode && sendingLiveAnswer && (
+                    <div className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-7 py-4 text-lg font-black text-white">
+                      <Loader2 className="animate-spin" size={20} />
+                      Enviando...
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs text-slate-400">Progresso</p>
-                <p className="mt-1 text-2xl font-black">
-                  {Math.round(progressPercent)}%
-                </p>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs text-slate-400">Respondidas</p>
-                <p className="mt-1 text-2xl font-black">
-                  {Object.keys(selectedAnswers).length}
-                </p>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs text-slate-400">Tema</p>
-                <p className="mt-1 text-2xl font-black capitalize">
-                  {selectedQuiz.theme || "neon"}
-                </p>
-              </div>
-            </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="rounded-[32px] border border-slate-800 bg-slate-900/70 p-8 text-center">
+            <AlertTriangle className="mx-auto h-12 w-12 text-slate-500" />
+
+            <h2 className="mt-4 text-2xl font-black">
+              Aguardando pergunta
+            </h2>
+
+            <p className="mt-2 text-sm text-slate-400">
+              O professor ainda não liberou uma pergunta para este quiz.
+            </p>
+          </div>
+        )}
       </section>
 
       <StudentRealtimeNotifications />

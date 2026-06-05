@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  Cake,
   CheckCircle,
   CheckCircle2,
   ChevronDown,
   Clipboard,
   Edit3,
+  PartyPopper,
   Save,
   Search,
   XCircle,
@@ -43,6 +45,7 @@ type Student = {
   id: string;
   name: string;
   class_id: string;
+  birth_date: string | null;
 };
 
 type AttendanceStatus = "Presente" | "Falta" | "Atraso";
@@ -71,6 +74,11 @@ type CurrentLessonInfo = {
   content: string;
   notes: string | null;
   label: string;
+};
+
+type BirthdayMessage = {
+  id: string;
+  message: string;
 };
 
 const motivationalMessages = [
@@ -110,6 +118,17 @@ const motivationalMessages = [
   "Aprender hoje é ganhar voz, escolha e oportunidade amanhã.",
   "Quem leva a formação a sério chega mais forte à entrevista.",
   "Seu futuro agradece a dedicação que você escolhe hoje.",
+];
+
+const fallbackBirthdayMessages = [
+  "Que este novo ciclo venha com coragem, boas escolhas e confiança para construir um futuro cheio de possibilidades.",
+  "Hoje celebramos sua vida, sua história e tudo que você ainda pode conquistar. Continue acreditando no seu potencial.",
+  "Que seu aniversário marque uma fase de crescimento, aprendizado, boas amizades e muitas oportunidades.",
+  "Parabéns pelo seu dia! Que você siga evoluindo com criatividade, responsabilidade e vontade de transformar sua realidade.",
+  "Que este novo ano de vida traga mais foco, alegria, descobertas e força para correr atrás dos seus sonhos.",
+  "Feliz aniversário! Que você nunca perca a curiosidade de aprender e a coragem de tentar de novo.",
+  "Que sua jornada seja cheia de boas escolhas, bons desafios e pessoas que ajudem você a crescer.",
+  "Hoje é dia de celebrar quem você é e tudo que ainda está construindo. Que venham novas conquistas!",
 ];
 
 function getTodayDate() {
@@ -161,6 +180,10 @@ function getShortStudentName(name: string) {
   return parts.slice(0, 3).join(" ");
 }
 
+function getFirstName(name: string) {
+  return name.trim().split(/\s+/)[0] || "aluno";
+}
+
 function getLessonLabel(lesson: Lesson) {
   return `${lesson.course_name} — ${
     lesson.lesson_order > 0 ? `Aula ${lesson.lesson_order}: ` : ""
@@ -197,6 +220,84 @@ function getMotivationalMessage(seed: string) {
   return motivationalMessages[hash % motivationalMessages.length];
 }
 
+function getDateParts(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const cleanValue = value.slice(0, 10);
+  const [yearValue, monthValue, dayValue] = cleanValue.split("-");
+
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  return {
+    year,
+    month,
+    day,
+  };
+}
+
+function isBirthdayOnDate(
+  birthDate: string | null | undefined,
+  targetDate: string
+) {
+  const birthParts = getDateParts(birthDate);
+  const targetParts = getDateParts(targetDate);
+
+  if (!birthParts || !targetParts) {
+    return false;
+  }
+
+  return birthParts.month === targetParts.month && birthParts.day === targetParts.day;
+}
+
+function formatBirthdayDate(birthDate: string | null | undefined) {
+  const parts = getDateParts(birthDate);
+
+  if (!parts) {
+    return "";
+  }
+
+  return new Date(2000, parts.month - 1, parts.day).toLocaleDateString(
+    "pt-BR",
+    {
+      day: "2-digit",
+      month: "long",
+    }
+  );
+}
+
+function getBirthdayMessageForStudent({
+  student,
+  attendanceDate,
+  birthdayMessages,
+}: {
+  student: Student;
+  attendanceDate: string;
+  birthdayMessages: BirthdayMessage[];
+}) {
+  const messageSource =
+    birthdayMessages.length > 0
+      ? birthdayMessages.map((item) => item.message)
+      : fallbackBirthdayMessages;
+
+  const seed = normalizeText(`${student.id}-${student.name}-${attendanceDate}`);
+  const hash = seed.split("").reduce((total, char, index) => {
+    return total + char.charCodeAt(0) * (index + 1);
+  }, 0);
+
+  const firstName = getFirstName(student.name);
+  const selectedMessage = messageSource[hash % messageSource.length];
+
+  return selectedMessage.replace("{nome}", firstName);
+}
+
 export function AttendanceSmartPanel({
   classes,
   lessons,
@@ -229,6 +330,7 @@ export function AttendanceSmartPanel({
   const [diaryLessonSearch, setDiaryLessonSearch] = useState("");
 
   const [records, setRecords] = useState<Record<string, AttendanceRecord>>({});
+  const [birthdayMessages, setBirthdayMessages] = useState<BirthdayMessage[]>([]);
 
   const selectedClass = classes.find((item) => item.id === selectedClassId);
 
@@ -239,9 +341,37 @@ export function AttendanceSmartPanel({
 
   const selectedDiaryLesson = diaryLessons.find(
     (lesson) =>
-      lesson.id === selectedDiaryLessonId &&
-      lesson.class_id === selectedClassId
+      lesson.id === selectedDiaryLessonId && lesson.class_id === selectedClassId
   );
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadBirthdayMessages() {
+      const { data, error } = await supabase
+        .from("birthday_messages")
+        .select("id, message")
+        .eq("active", true);
+
+      if (ignore) {
+        return;
+      }
+
+      if (error) {
+        console.error("Erro ao carregar mensagens de aniversário:", error);
+        setBirthdayMessages([]);
+        return;
+      }
+
+      setBirthdayMessages((data as BirthdayMessage[] | null) ?? []);
+    }
+
+    loadBirthdayMessages();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -353,6 +483,16 @@ export function AttendanceSmartPanel({
     return students.filter((student) => student.class_id === selectedClassId);
   }, [students, selectedClassId]);
 
+  const birthdayStudents = useMemo(() => {
+    if (!selectedClassId || !attendanceDate) {
+      return [];
+    }
+
+    return classStudents.filter((student) =>
+      isBirthdayOnDate(student.birth_date, attendanceDate)
+    );
+  }, [classStudents, selectedClassId, attendanceDate]);
+
   const currentLessonInfo = useMemo<CurrentLessonInfo | null>(() => {
     if (lessonMode === "planned" && selectedLesson) {
       const lessonTitle =
@@ -393,8 +533,7 @@ export function AttendanceSmartPanel({
         source: "diary",
         courseName: "Diário de classe",
         title: `Aula registrada em ${date}`,
-        content:
-          selectedDiaryLesson.content.trim() || "Conteúdo não informado",
+        content: selectedDiaryLesson.content.trim() || "Conteúdo não informado",
         notes: selectedDiaryLesson.notes,
         label: getDiaryLessonLabel(selectedDiaryLesson),
       };
@@ -720,6 +859,9 @@ export function AttendanceSmartPanel({
     function buildStudentLine(student: Student) {
       const record = getRecord(student.id);
       const shortName = getShortStudentName(student.name);
+      const birthdayMark = isBirthdayOnDate(student.birth_date, attendanceDate)
+        ? " 🎂"
+        : "";
 
       const time =
         record.status === "Atraso" && record.arrival_time
@@ -730,7 +872,7 @@ export function AttendanceSmartPanel({
         ? `\n   _Obs.: ${record.notes.trim()}_`
         : "";
 
-      return `• ${shortName}${time}${note}`;
+      return `• ${shortName}${birthdayMark}${time}${note}`;
     }
 
     const presentLines =
@@ -747,6 +889,32 @@ export function AttendanceSmartPanel({
       absentStudents.length > 0
         ? absentStudents.map(buildStudentLine).join("\n")
         : "• Nenhuma falta";
+
+    const birthdayLines =
+      birthdayStudents.length > 0
+        ? birthdayStudents
+            .map((student) => {
+              const shortName = getShortStudentName(student.name);
+              const birthdayMessage = getBirthdayMessageForStudent({
+                student,
+                attendanceDate,
+                birthdayMessages,
+              });
+
+              return `🎂 *${shortName}*\n_${birthdayMessage}_`;
+            })
+            .join("\n\n")
+        : "";
+
+    const birthdayBlock =
+      birthdayStudents.length > 0
+        ? `
+
+━━━━━━━━━━━━━━
+
+🎂 *Aniversariante(s) do dia*
+${birthdayLines}`
+        : "";
 
     return `📌 *CHAMADA REGISTRADA*
 
@@ -773,7 +941,9 @@ ${absentLines}
 📊 *Resumo*
 ✅ Presentes: ${presentStudents.length}
 ⚠️ Atrasos: ${delayedStudents.length}
-❌ Faltas: ${absentStudents.length}
+❌ Faltas: ${absentStudents.length}${birthdayBlock}
+
+━━━━━━━━━━━━━━
 
 💬 *Mensagem do dia*
 _${motivationalMessage}_`;
@@ -781,6 +951,8 @@ _${motivationalMessage}_`;
     selectedClass,
     currentLessonInfo,
     classStudents,
+    birthdayStudents,
+    birthdayMessages,
     records,
     teacherName,
     attendanceDate,
@@ -923,6 +1095,49 @@ _${motivationalMessage}_`;
             </div>
           </div>
         </div>
+
+        {selectedClassId && birthdayStudents.length > 0 && (
+          <div className="mt-5 overflow-hidden rounded-3xl border border-pink-400/30 bg-gradient-to-br from-pink-500/20 via-fuchsia-500/10 to-yellow-500/10 p-5 shadow-xl shadow-pink-500/10">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-4">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-pink-500/20 text-pink-200">
+                  <PartyPopper className="h-7 w-7" />
+                </div>
+
+                <div>
+                  <p className="text-sm font-black uppercase tracking-wide text-pink-200">
+                    Aniversário na turma
+                  </p>
+
+                  <h3 className="mt-1 text-2xl font-black text-white">
+                    {birthdayStudents.length === 1
+                      ? `${getShortStudentName(
+                          birthdayStudents[0].name
+                        )} faz aniversário hoje`
+                      : `${birthdayStudents.length} alunos fazem aniversário hoje`}
+                  </h3>
+
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                    O relatório da chamada já vai incluir uma felicitação
+                    especial para destacar o momento.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {birthdayStudents.map((student) => (
+                  <span
+                    key={student.id}
+                    className="inline-flex items-center gap-2 rounded-full border border-pink-300/20 bg-slate-950/50 px-3 py-2 text-sm font-bold text-pink-100"
+                  >
+                    <Cake className="h-4 w-4" />
+                    {getShortStudentName(student.name)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {lessonMode === "planned" ? (
           <div className="mt-4">
@@ -1257,22 +1472,45 @@ _${motivationalMessage}_`;
               };
 
               const shortName = getShortStudentName(student.name);
+              const birthdayToday = isBirthdayOnDate(
+                student.birth_date,
+                attendanceDate
+              );
 
               return (
                 <div
                   key={student.id}
-                  className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4"
+                  className={`rounded-2xl border p-4 transition ${
+                    birthdayToday
+                      ? "border-pink-400/30 bg-pink-500/10 shadow-lg shadow-pink-500/10"
+                      : "border-slate-800 bg-slate-950/40"
+                  }`}
                 >
                   <div className="grid gap-3 xl:grid-cols-[220px_330px_120px_minmax(180px,1fr)] xl:items-center">
                     <div className="min-w-0">
-                      <p
-                        title={student.name}
-                        className="truncate font-semibold text-white"
-                      >
-                        {shortName}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p
+                          title={student.name}
+                          className="truncate font-semibold text-white"
+                        >
+                          {shortName}
+                        </p>
 
-                      <p className="text-sm text-slate-400">{record.status}</p>
+                        {birthdayToday && (
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-pink-500/20 px-2 py-1 text-[11px] font-bold text-pink-100">
+                            <Cake className="h-3 w-3" />
+                            aniversário
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-sm text-slate-400">
+                        {birthdayToday
+                          ? `Faz aniversário em ${formatBirthdayDate(
+                              student.birth_date
+                            )}`
+                          : record.status}
+                      </p>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
@@ -1331,6 +1569,17 @@ _${motivationalMessage}_`;
                       className="h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 text-sm outline-none focus:border-violet-400"
                     />
                   </div>
+
+                  {birthdayToday && (
+                    <div className="mt-3 rounded-2xl border border-pink-400/20 bg-slate-950/40 px-4 py-3 text-sm leading-6 text-pink-100">
+                      🎂{" "}
+                      {getBirthdayMessageForStudent({
+                        student,
+                        attendanceDate,
+                        birthdayMessages,
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
