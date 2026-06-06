@@ -2,7 +2,16 @@
 
 import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
-import { Cake, Edit3, Save, Search, X } from "lucide-react";
+import {
+  Archive,
+  Cake,
+  Edit3,
+  Filter,
+  RotateCcw,
+  Save,
+  Search,
+  X,
+} from "lucide-react";
 
 import { supabase } from "../../lib/supabase";
 import { DeleteStudentButton } from "../DeleteStudentButton";
@@ -30,6 +39,10 @@ type Student = {
   average: number | null;
   attendance: number | null;
   status: string | null;
+  archived?: boolean | null;
+  archived_at?: string | null;
+  archive_reason?: string | null;
+  archive_notes?: string | null;
 };
 
 type EditForm = {
@@ -44,6 +57,13 @@ type EditForm = {
   status: string;
 };
 
+type ArchiveForm = {
+  reason: string;
+  notes: string;
+};
+
+const archiveReasons = ["Abandono", "Conclusão", "Transferência", "Outro"];
+
 export function StudentsTable({
   students,
   classes,
@@ -54,6 +74,14 @@ export function StudentsTable({
   courses: CourseItem[];
 }) {
   const [search, setSearch] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [archiveFilter, setArchiveFilter] = useState<
+    "active" | "archived" | "all"
+  >("active");
+  const [reasonFilter, setReasonFilter] = useState("");
+  const [minAge, setMinAge] = useState("");
+  const [maxAge, setMaxAge] = useState("");
+
   const [editingId, setEditingId] = useState("");
   const [savingId, setSavingId] = useState("");
   const [editForm, setEditForm] = useState<EditForm>({
@@ -66,6 +94,13 @@ export function StudentsTable({
     average: "",
     attendance: "",
     status: "Regular",
+  });
+
+  const [archiveStudent, setArchiveStudent] = useState<Student | null>(null);
+  const [archiveSaving, setArchiveSaving] = useState(false);
+  const [archiveForm, setArchiveForm] = useState<ArchiveForm>({
+    reason: "Abandono",
+    notes: "",
   });
 
   function normalizeText(value: string) {
@@ -138,6 +173,20 @@ export function StudentsTable({
     return date.toLocaleDateString("pt-BR");
   }
 
+  function formatDateTime(value: string | null | undefined) {
+    if (!value) {
+      return "Sem data";
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return "Sem data";
+    }
+
+    return date.toLocaleString("pt-BR");
+  }
+
   function getStudentAge(value: string | null | undefined) {
     const inputValue = getBirthDateInputValue(value);
 
@@ -182,15 +231,71 @@ export function StudentsTable({
     return today.getMonth() + 1 === month && today.getDate() === day;
   }
 
+  function getArchiveStatus(student: Student) {
+    return student.archived ? "Arquivado" : "Ativo";
+  }
+
+  function clearFilters() {
+    setSearch("");
+    setClassFilter("");
+    setArchiveFilter("active");
+    setReasonFilter("");
+    setMinAge("");
+    setMaxAge("");
+  }
+
+  const activeStudentsCount = useMemo(() => {
+    return students.filter((student) => !student.archived).length;
+  }, [students]);
+
+  const archivedStudentsCount = useMemo(() => {
+    return students.filter((student) => student.archived).length;
+  }, [students]);
+
   const filteredStudents = useMemo(() => {
     const normalizedSearch = normalizeText(search);
-
-    if (!normalizedSearch) {
-      return students;
-    }
+    const minimumAge = minAge.trim() ? Number(minAge) : null;
+    const maximumAge = maxAge.trim() ? Number(maxAge) : null;
 
     return students.filter((student) => {
       const age = getStudentAge(student.birth_date);
+      const isArchived = Boolean(student.archived);
+
+      if (archiveFilter === "active" && isArchived) {
+        return false;
+      }
+
+      if (archiveFilter === "archived" && !isArchived) {
+        return false;
+      }
+
+      if (classFilter && student.class_id !== classFilter) {
+        return false;
+      }
+
+      if (reasonFilter && student.archive_reason !== reasonFilter) {
+        return false;
+      }
+
+      if (
+        minimumAge !== null &&
+        !Number.isNaN(minimumAge) &&
+        (age === null || age < minimumAge)
+      ) {
+        return false;
+      }
+
+      if (
+        maximumAge !== null &&
+        !Number.isNaN(maximumAge) &&
+        (age === null || age > maximumAge)
+      ) {
+        return false;
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
 
       const searchableText = normalizeText(`
         ${student.name ?? ""}
@@ -201,11 +306,22 @@ export function StudentsTable({
         ${student.class_name ?? ""}
         ${student.course_name ?? ""}
         ${student.status ?? ""}
+        ${student.archive_reason ?? ""}
+        ${student.archive_notes ?? ""}
+        ${getArchiveStatus(student)}
       `);
 
       return searchableText.includes(normalizedSearch);
     });
-  }, [students, search]);
+  }, [
+    students,
+    search,
+    classFilter,
+    archiveFilter,
+    reasonFilter,
+    minAge,
+    maxAge,
+  ]);
 
   function startEdit(student: Student) {
     const selectedClass = classes.find(
@@ -307,18 +423,109 @@ export function StudentsTable({
     window.location.reload();
   }
 
+  function openArchiveModal(student: Student) {
+    setArchiveStudent(student);
+    setArchiveForm({
+      reason: student.archive_reason || "Abandono",
+      notes: student.archive_notes || "",
+    });
+  }
+
+  function closeArchiveModal() {
+    setArchiveStudent(null);
+    setArchiveSaving(false);
+    setArchiveForm({
+      reason: "Abandono",
+      notes: "",
+    });
+  }
+
+  async function archiveSelectedStudent() {
+    if (!archiveStudent) {
+      return;
+    }
+
+    if (!archiveForm.reason.trim()) {
+      alert("Selecione o motivo do arquivamento.");
+      return;
+    }
+
+    setArchiveSaving(true);
+
+    const { error } = await supabase
+      .from("students")
+      .update({
+        archived: true,
+        archived_at: new Date().toISOString(),
+        archive_reason: archiveForm.reason,
+        archive_notes: archiveForm.notes.trim() || null,
+      })
+      .eq("id", archiveStudent.id);
+
+    setArchiveSaving(false);
+
+    if (error) {
+      alert(`Erro ao arquivar aluno: ${error.message}`);
+      return;
+    }
+
+    closeArchiveModal();
+    window.location.reload();
+  }
+
+  async function reactivateStudent(student: Student) {
+    const confirmed = window.confirm(
+      `Reativar ${getStudentName(
+        student
+      )}? Ele voltará para a listagem de alunos ativos.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("students")
+      .update({
+        archived: false,
+        archived_at: null,
+        archive_reason: null,
+        archive_notes: null,
+        status: "Regular",
+      })
+      .eq("id", student.id);
+
+    if (error) {
+      alert(`Erro ao reativar aluno: ${error.message}`);
+      return;
+    }
+
+    window.location.reload();
+  }
+
   return (
     <div className="mt-8 rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <h2 className="text-2xl font-bold">Lista de alunos</h2>
 
           <p className="mt-1 text-sm text-slate-400">
-            Pesquise por nome, telefone, turma, curso, idade ou status.
+            Pesquise por nome, telefone, idade, turma, status, situação ou
+            motivo de arquivamento.
           </p>
+
+          <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+            <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-300">
+              {activeStudentsCount} ativo(s)
+            </span>
+
+            <span className="rounded-full bg-slate-700/70 px-3 py-1 text-slate-300">
+              {archivedStudentsCount} arquivado(s)
+            </span>
+          </div>
         </div>
 
-        <div className="flex h-12 items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950/50 px-4 md:w-80">
+        <div className="flex h-12 items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950/50 px-4 xl:w-96">
           <Search size={20} className="text-slate-400" />
 
           <input
@@ -330,15 +537,94 @@ export function StudentsTable({
         </div>
       </div>
 
+      <div className="mb-5 rounded-3xl border border-slate-800 bg-slate-950/40 p-4">
+        <div className="mb-4 flex items-center gap-2 text-sm font-bold text-slate-300">
+          <Filter size={17} />
+          Filtros avançados
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <select
+            value={archiveFilter}
+            onChange={(event) =>
+              setArchiveFilter(
+                event.target.value as "active" | "archived" | "all"
+              )
+            }
+            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-violet-400"
+          >
+            <option value="active">Somente ativos</option>
+            <option value="archived">Somente arquivados</option>
+            <option value="all">Ativos e arquivados</option>
+          </select>
+
+          <select
+            value={classFilter}
+            onChange={(event) => setClassFilter(event.target.value)}
+            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-violet-400"
+          >
+            <option value="">Todas as turmas</option>
+
+            {classes.map((classItem) => (
+              <option key={classItem.id} value={classItem.id}>
+                {classItem.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={reasonFilter}
+            onChange={(event) => setReasonFilter(event.target.value)}
+            disabled={archiveFilter === "active"}
+            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <option value="">Todos os motivos</option>
+
+            {archiveReasons.map((reason) => (
+              <option key={reason} value={reason}>
+                {reason}
+              </option>
+            ))}
+          </select>
+
+          <input
+            value={minAge}
+            onChange={(event) => setMinAge(event.target.value)}
+            placeholder="Idade mínima"
+            type="number"
+            min="0"
+            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-violet-400"
+          />
+
+          <input
+            value={maxAge}
+            onChange={(event) => setMaxAge(event.target.value)}
+            placeholder="Idade máxima"
+            type="number"
+            min="0"
+            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-violet-400"
+          />
+
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="rounded-2xl border border-slate-700 px-4 py-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+          >
+            Limpar filtros
+          </button>
+        </div>
+      </div>
+
       <div className="mb-4 text-sm text-slate-400">
         {filteredStudents.length} aluno(s) encontrado(s)
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-slate-800">
-        <table className="w-full min-w-[1220px] border-collapse">
+        <table className="w-full min-w-[1320px] border-collapse">
           <thead className="bg-slate-950/70 text-left text-sm text-slate-400">
             <tr>
               <th className="p-4">Aluno</th>
+              <th className="p-4">Situação</th>
               <th className="p-4">Turma</th>
               <th className="p-4">Curso</th>
               <th className="p-4">Telefone</th>
@@ -355,43 +641,64 @@ export function StudentsTable({
               const isEditing = editingId === student.id;
               const age = getStudentAge(student.birth_date);
               const birthdayToday = isBirthdayToday(student.birth_date);
+              const archived = Boolean(student.archived);
 
               return (
                 <Fragment key={student.id}>
-                  <tr className="border-t border-slate-800 transition hover:bg-white/[0.03]">
+                  <tr
+                    className={`border-t border-slate-800 transition hover:bg-white/[0.03] ${
+                      archived ? "bg-slate-950/50 opacity-80" : ""
+                    }`}
+                  >
                     <td className="p-4">
                       <div className="flex items-center gap-3">
                         <div
                           className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full font-bold ${
-                            birthdayToday
+                            archived
+                              ? "bg-slate-700 text-slate-300"
+                              : birthdayToday
                               ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20"
                               : "bg-violet-500 text-white"
                           }`}
                         >
-                          {birthdayToday ? <Cake size={19} /> : getStudentInitial(student)}
+                          {birthdayToday && !archived ? (
+                            <Cake size={19} />
+                          ) : (
+                            getStudentInitial(student)
+                          )}
                         </div>
 
                         <div className="min-w-0">
                           <Link
                             href={`/dashboard/alunos/${student.id}`}
-                            className="block max-w-[220px] truncate font-semibold transition hover:text-violet-300"
+                            className="block max-w-[240px] truncate font-semibold transition hover:text-violet-300"
                             title={getStudentName(student)}
                           >
                             {getStudentName(student)}
                           </Link>
 
-                          <p className="max-w-[220px] truncate text-sm text-slate-400">
+                          <p className="max-w-[240px] truncate text-sm text-slate-400">
                             {student.email || "E-mail não informado"}
                           </p>
 
-                          {birthdayToday && (
+                          {birthdayToday && !archived && (
                             <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-pink-500/10 px-2 py-1 text-xs font-bold text-pink-200">
                               <Cake size={12} />
                               Aniversário hoje
                             </p>
                           )}
+
+                          {archived && (
+                            <p className="mt-1 line-clamp-1 text-xs text-slate-500">
+                              Arquivado em {formatDateTime(student.archived_at)}
+                            </p>
+                          )}
                         </div>
                       </div>
+                    </td>
+
+                    <td className="p-4">
+                      <ArchiveBadge student={student} />
                     </td>
 
                     <td className="p-4 text-slate-300">
@@ -431,24 +738,73 @@ export function StudentsTable({
                     </td>
 
                     <td className="p-4">
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => startEdit(student)}
-                          className="flex items-center gap-2 rounded-xl border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm font-semibold text-blue-300 transition hover:bg-blue-500/20"
+                          title="Editar aluno"
+                          aria-label={`Editar ${getStudentName(student)}`}
+                          className="flex h-10 w-10 items-center justify-center rounded-xl border border-blue-500/40 bg-blue-500/10 text-blue-300 transition hover:bg-blue-500/20"
                         >
-                          <Edit3 size={17} />
-                          Editar
+                          <Edit3 size={18} />
                         </button>
+
+                        {archived ? (
+                          <button
+                            type="button"
+                            onClick={() => reactivateStudent(student)}
+                            title="Reativar aluno"
+                            aria-label={`Reativar ${getStudentName(student)}`}
+                            className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 transition hover:bg-emerald-500/20"
+                          >
+                            <RotateCcw size={18} />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => openArchiveModal(student)}
+                            title="Arquivar aluno"
+                            aria-label={`Arquivar ${getStudentName(student)}`}
+                            className="flex h-10 w-10 items-center justify-center rounded-xl border border-yellow-500/40 bg-yellow-500/10 text-yellow-300 transition hover:bg-yellow-500/20"
+                          >
+                            <Archive size={18} />
+                          </button>
+                        )}
 
                         <DeleteStudentButton studentId={student.id} />
                       </div>
                     </td>
                   </tr>
 
+                  {archived && (
+                    <tr className="border-t border-slate-900 bg-slate-950/30">
+                      <td colSpan={10} className="px-4 pb-4">
+                        <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-sm">
+                          <div className="flex flex-wrap gap-2">
+                            <span className="rounded-full bg-slate-700/70 px-3 py-1 font-semibold text-slate-300">
+                              Motivo:{" "}
+                              {student.archive_reason || "Não informado"}
+                            </span>
+
+                            <span className="rounded-full bg-slate-700/70 px-3 py-1 font-semibold text-slate-300">
+                              Arquivado em:{" "}
+                              {formatDateTime(student.archived_at)}
+                            </span>
+                          </div>
+
+                          {student.archive_notes && (
+                            <p className="mt-3 leading-6 text-slate-400">
+                              {student.archive_notes}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+
                   {isEditing && (
                     <tr className="border-t border-slate-800 bg-slate-950/40">
-                      <td colSpan={9} className="p-4">
+                      <td colSpan={10} className="p-4">
                         <div className="rounded-3xl border border-blue-500/20 bg-blue-500/5 p-5">
                           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                             <div>
@@ -564,7 +920,10 @@ export function StudentsTable({
                             <input
                               value={editForm.attendance}
                               onChange={(event) =>
-                                updateEditForm("attendance", event.target.value)
+                                updateEditForm(
+                                  "attendance",
+                                  event.target.value
+                                )
                               }
                               placeholder="Frequência"
                               type="number"
@@ -605,21 +964,139 @@ export function StudentsTable({
           </tbody>
         </table>
       </div>
+
+      {archiveStudent && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur">
+          <div className="w-full max-w-xl rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-500/15 text-yellow-300">
+                  <Archive size={26} />
+                </div>
+
+                <h2 className="text-2xl font-black text-white">
+                  Arquivar aluno
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-slate-400">
+                  O aluno sairá da listagem de ativos, mas o histórico ficará
+                  salvo para consulta futura.
+                </p>
+
+                <p className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-3 font-semibold text-white">
+                  {getStudentName(archiveStudent)}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeArchiveModal}
+                className="rounded-2xl border border-slate-700 p-2 text-slate-300 transition hover:bg-slate-800"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-300">
+                  Motivo do arquivamento
+                </label>
+
+                <select
+                  value={archiveForm.reason}
+                  onChange={(event) =>
+                    setArchiveForm((current) => ({
+                      ...current,
+                      reason: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-yellow-400"
+                >
+                  {archiveReasons.map((reason) => (
+                    <option key={reason} value={reason}>
+                      {reason}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-300">
+                  Observações
+                </label>
+
+                <textarea
+                  value={archiveForm.notes}
+                  onChange={(event) =>
+                    setArchiveForm((current) => ({
+                      ...current,
+                      notes: event.target.value,
+                    }))
+                  }
+                  placeholder="Ex.: aluno concluiu a turma, abandonou por motivo pessoal, pode retornar futuramente..."
+                  rows={5}
+                  className="w-full resize-none rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-yellow-400"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+              <button
+                type="button"
+                onClick={closeArchiveModal}
+                className="rounded-2xl border border-slate-700 px-5 py-3 font-semibold text-slate-300 transition hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={archiveSelectedStudent}
+                disabled={archiveSaving}
+                className="flex items-center justify-center gap-2 rounded-2xl bg-yellow-500 px-5 py-3 font-black text-slate-950 transition hover:bg-yellow-400 disabled:opacity-50"
+              >
+                <Archive size={18} />
+                {archiveSaving ? "Arquivando..." : "Confirmar arquivamento"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const normalizedStatus = status === "AtenÃ§Ã£o" ? "Atenção" : status;
+
   const styles =
-    status === "Excelente"
+    normalizedStatus === "Excelente"
       ? "bg-emerald-500/10 text-emerald-300"
-      : status === "Atenção"
+      : normalizedStatus === "Atenção"
       ? "bg-amber-500/10 text-amber-300"
       : "bg-blue-500/10 text-blue-300";
 
   return (
     <span className={`rounded-full px-3 py-1 text-sm font-medium ${styles}`}>
-      {status}
+      {normalizedStatus}
+    </span>
+  );
+}
+
+function ArchiveBadge({ student }: { student: Student }) {
+  if (student.archived) {
+    return (
+      <span className="inline-flex items-center gap-2 rounded-full bg-slate-700/70 px-3 py-1 text-sm font-semibold text-slate-300">
+        <Archive size={14} />
+        Arquivado
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-sm font-semibold text-emerald-300">
+      Ativo
     </span>
   );
 }

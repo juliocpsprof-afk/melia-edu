@@ -84,6 +84,7 @@ export default async function FrequenciaPage() {
   const { data: students, error: studentsError } = await supabase
     .from("students")
     .select("id, name, class_id, birth_date")
+    .eq("archived", false)
     .order("name", { ascending: true });
 
   const error =

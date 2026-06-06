@@ -34,6 +34,7 @@ export default async function SorteiosPage() {
   const { data: students } = await supabase
     .from("students")
     .select("id, name, class_id, class_name")
+    .eq("archived", false)
     .order("name", { ascending: true });
 
   const { data: activities } = await supabase

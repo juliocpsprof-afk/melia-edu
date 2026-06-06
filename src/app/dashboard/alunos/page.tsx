@@ -2,11 +2,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import type { ReactNode } from "react";
-import {
-  TrendingUp,
-  UserRound,
-  Users,
-} from "lucide-react";
+import { Archive, TrendingUp, UserRound, Users } from "lucide-react";
 
 import { supabase } from "../../../lib/supabase";
 import { StudentRegistrationArea } from "../../../components/StudentRegistrationArea";
@@ -20,6 +16,12 @@ type ClassItem = {
 type CourseItem = {
   id: string;
   name: string;
+};
+
+type StudentSummary = {
+  id: string;
+  status: string | null;
+  archived?: boolean | null;
 };
 
 export default async function AlunosPage() {
@@ -47,14 +49,10 @@ export default async function AlunosPage() {
   if (error || classesError || coursesError) {
     return (
       <div className="p-6 text-white">
-        <h1 className="text-3xl font-bold">
-          Erro ao carregar dados
-        </h1>
+        <h1 className="text-3xl font-bold">Erro ao carregar dados</h1>
 
         <p className="mt-2 text-red-300">
-          {error?.message ||
-            classesError?.message ||
-            coursesError?.message}
+          {error?.message || classesError?.message || coursesError?.message}
         </p>
       </div>
     );
@@ -62,13 +60,16 @@ export default async function AlunosPage() {
 
   const safeClasses = (classes as ClassItem[]) ?? [];
   const safeCourses = (courses as CourseItem[]) ?? [];
+  const safeStudents = (students as StudentSummary[] | null) ?? [];
 
-  const totalStudents = students?.length ?? 0;
+  const activeStudents = safeStudents.filter((student) => !student.archived);
+  const archivedStudents = safeStudents.filter((student) => student.archived);
 
-  const attentionStudents =
-    students?.filter(
-      (student) => student.status === "Atenção"
-    ).length ?? 0;
+  const totalActiveStudents = activeStudents.length;
+
+  const attentionStudents = activeStudents.filter(
+    (student) => student.status === "Atenção" || student.status === "AtenÃ§Ã£o"
+  ).length;
 
   const totalClasses = classes?.length ?? 0;
 
@@ -76,27 +77,29 @@ export default async function AlunosPage() {
     <>
       <header className="border-b border-slate-800 bg-slate-950/40 px-6 py-5">
         <div>
-          <h1 className="text-3xl font-bold">
-            Alunos
-          </h1>
+          <h1 className="text-3xl font-bold">Alunos</h1>
 
           <p className="mt-1 text-slate-400">
-            Cadastre alunos vinculados às turmas reais do sistema.
+            Cadastre, consulte, edite, arquive e acompanhe alunos vinculados às
+            turmas reais do sistema.
           </p>
         </div>
       </header>
 
       <section className="p-6">
-        <StudentRegistrationArea
-          classes={safeClasses}
-          courses={safeCourses}
-        />
+        <StudentRegistrationArea classes={safeClasses} courses={safeCourses} />
 
-        <div className="mt-8 grid gap-5 md:grid-cols-3">
+        <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           <SummaryCard
-            title="Total de alunos"
-            value={String(totalStudents)}
+            title="Alunos ativos"
+            value={String(totalActiveStudents)}
             icon={<Users />}
+          />
+
+          <SummaryCard
+            title="Arquivados"
+            value={String(archivedStudents.length)}
+            icon={<Archive />}
           />
 
           <SummaryCard
@@ -137,13 +140,9 @@ function SummaryCard({
         {icon}
       </div>
 
-      <p className="text-slate-400">
-        {title}
-      </p>
+      <p className="text-slate-400">{title}</p>
 
-      <h3 className="mt-3 text-4xl font-bold">
-        {value}
-      </h3>
+      <h3 className="mt-3 text-4xl font-bold">{value}</h3>
     </div>
   );
 }

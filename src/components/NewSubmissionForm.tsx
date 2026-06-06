@@ -1,7 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CheckCircle, Search, Users, XCircle } from "lucide-react";
+import {
+  CheckCircle,
+  Search,
+  Star,
+  Users,
+  XCircle,
+} from "lucide-react";
+
 import { supabase } from "../lib/supabase";
 
 type Student = {
@@ -34,6 +41,7 @@ export function NewSubmissionForm({
   const [content, setContent] = useState("");
   const [classFilter, setClassFilter] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
+  const [grade, setGrade] = useState("");
   const [loading, setLoading] = useState(false);
 
   const [message, setMessage] = useState<{
@@ -53,7 +61,10 @@ export function NewSubmissionForm({
     const search = normalizeText(studentSearch);
 
     return students.filter((student) => {
-      const matchesClass = classFilter ? student.class_id === classFilter : true;
+      const matchesClass = classFilter
+        ? student.class_id === classFilter
+        : true;
+
       const matchesSearch = search
         ? normalizeText(student.name).includes(search)
         : true;
@@ -61,6 +72,10 @@ export function NewSubmissionForm({
       return matchesClass && matchesSearch;
     });
   }, [students, classFilter, studentSearch]);
+
+  const visibleActivities = useMemo(() => {
+    return activities.filter((activity) => !!activity.title);
+  }, [activities]);
 
   async function handleCreateSubmission() {
     setMessage(null);
@@ -76,46 +91,76 @@ export function NewSubmissionForm({
 
     setLoading(true);
 
-    const { error } = await supabase.from("submissions").insert({
-      student_id: studentId,
-      activity_id: activityId,
-      content: content.trim() || null,
-      status: "Pendente",
-    });
+    const parsedGrade =
+      grade.trim() !== ""
+        ? Number(grade.replace(",", "."))
+        : null;
 
-    setLoading(false);
+    const submissionStatus =
+      parsedGrade !== null ? "Corrigida" : "Pendente";
 
-    if (error) {
+    const { error: submissionError } = await supabase
+      .from("submissions")
+      .insert({
+        student_id: studentId,
+        activity_id: activityId,
+        content: content.trim() || null,
+        grade: parsedGrade,
+        status: submissionStatus,
+      });
+
+    if (submissionError) {
+      setLoading(false);
+
       setMessage({
         type: "error",
-        text: "Erro ao enviar atividade.",
+        text: "Erro ao registrar entrega.",
       });
 
       return;
     }
 
+    if (parsedGrade !== null) {
+      const activity = activities.find(
+        (item) => item.id === activityId
+      );
+
+      await supabase.from("grades").insert({
+        student_id: studentId,
+        title: activity?.title || "Atividade",
+        score: parsedGrade,
+        date: new Date().toISOString(),
+      });
+    }
+
+    setLoading(false);
+
     setMessage({
       type: "success",
-      text: "Atividade enviada com sucesso!",
+      text: "Entrega registrada com sucesso!",
     });
 
     setStudentId("");
     setActivityId("");
     setContent("");
     setStudentSearch("");
+    setGrade("");
 
     setTimeout(() => {
       window.location.reload();
-    }, 800);
+    }, 900);
   }
 
   return (
     <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">Nova entrega</h2>
+          <h2 className="text-2xl font-bold text-white">
+            Nova entrega
+          </h2>
+
           <p className="mt-1 text-sm text-slate-400">
-            Registre uma atividade entregue por um aluno.
+            Registre atividades entregues e notas dos alunos.
           </p>
         </div>
 
@@ -139,7 +184,9 @@ export function NewSubmissionForm({
             <XCircle size={20} />
           )}
 
-          <span className="font-medium">{message.text}</span>
+          <span className="font-medium">
+            {message.text}
+          </span>
         </div>
       )}
 
@@ -153,22 +200,33 @@ export function NewSubmissionForm({
             }}
             className="h-11 rounded-2xl border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none focus:border-violet-400"
           >
-            <option value="">Todas as turmas</option>
+            <option value="">
+              Todas as turmas
+            </option>
 
             {classes.map((classItem) => (
-              <option key={classItem.id} value={classItem.id}>
+              <option
+                key={classItem.id}
+                value={classItem.id}
+              >
                 {classItem.name}
               </option>
             ))}
           </select>
 
           <div className="flex h-11 items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4 focus-within:border-violet-400">
-            <Search size={17} className="text-slate-500" />
+            <Search
+              size={17}
+              className="text-slate-500"
+            />
+
             <input
               type="text"
               value={studentSearch}
-              onChange={(event) => setStudentSearch(event.target.value)}
-              placeholder="Pesquisar aluno pelo nome..."
+              onChange={(event) =>
+                setStudentSearch(event.target.value)
+              }
+              placeholder="Pesquisar aluno..."
               className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
             />
           </div>
@@ -176,13 +234,20 @@ export function NewSubmissionForm({
 
         <select
           value={studentId}
-          onChange={(event) => setStudentId(event.target.value)}
+          onChange={(event) =>
+            setStudentId(event.target.value)
+          }
           className="h-11 rounded-2xl border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none focus:border-violet-400"
         >
-          <option value="">Selecione o aluno</option>
+          <option value="">
+            Selecione o aluno
+          </option>
 
           {visibleStudents.map((student) => (
-            <option key={student.id} value={student.id}>
+            <option
+              key={student.id}
+              value={student.id}
+            >
               {student.name}
             </option>
           ))}
@@ -190,22 +255,51 @@ export function NewSubmissionForm({
 
         <select
           value={activityId}
-          onChange={(event) => setActivityId(event.target.value)}
+          onChange={(event) =>
+            setActivityId(event.target.value)
+          }
           className="h-11 rounded-2xl border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none focus:border-violet-400"
         >
-          <option value="">Selecione a atividade</option>
+          <option value="">
+            Selecione a atividade
+          </option>
 
-          {activities.map((activity) => (
-            <option key={activity.id} value={activity.id}>
+          {visibleActivities.map((activity) => (
+            <option
+              key={activity.id}
+              value={activity.id}
+            >
               {activity.title}
             </option>
           ))}
         </select>
 
+        <div className="flex h-11 items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4 focus-within:border-yellow-400">
+          <Star
+            size={16}
+            className="text-yellow-400"
+          />
+
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            max="10"
+            value={grade}
+            onChange={(event) =>
+              setGrade(event.target.value)
+            }
+            placeholder="Nota da atividade"
+            className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
+          />
+        </div>
+
         <textarea
           placeholder="Resposta do aluno... opcional"
           value={content}
-          onChange={(event) => setContent(event.target.value)}
+          onChange={(event) =>
+            setContent(event.target.value)
+          }
           rows={3}
           className="resize-none rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-violet-400"
         />
@@ -216,7 +310,9 @@ export function NewSubmissionForm({
         disabled={loading}
         className="mt-4 rounded-2xl bg-violet-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loading ? "Enviando..." : "Enviar atividade"}
+        {loading
+          ? "Salvando..."
+          : "Registrar entrega"}
       </button>
     </div>
   );

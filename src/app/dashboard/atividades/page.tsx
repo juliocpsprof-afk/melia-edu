@@ -74,6 +74,7 @@ export default async function AtividadesPage() {
   const { data: students, error: studentsError } = await supabase
     .from("students")
     .select("id, name, class_id")
+    .eq("archived", false)
     .order("name", { ascending: true });
 
   const { data: submissions, error: submissionsError } = await supabase

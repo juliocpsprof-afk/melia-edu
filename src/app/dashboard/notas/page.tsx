@@ -44,6 +44,7 @@ export default async function NotasPage() {
         feedback
       )
     `)
+    .eq("archived", false)
     .order("name", { ascending: true });
 
   if (error) {

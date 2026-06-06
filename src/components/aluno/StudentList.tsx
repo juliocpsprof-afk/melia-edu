@@ -81,6 +81,7 @@ export default function StudentList({ classId }: { classId: string }) {
           .from("students")
           .select("id, name, class_id")
           .eq("class_id", classId)
+          .eq("archived", false)
           .order("name", { ascending: true }),
       ]);
 

@@ -54,6 +54,7 @@ export default function StudentPinLogin() {
       .select("id, name, class_id, portal_pin, must_change_pin")
       .eq("id", studentId)
       .eq("class_id", classId)
+      .eq("archived", false)
       .single();
 
     if (error || !data) {

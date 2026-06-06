@@ -108,6 +108,7 @@ export default async function EntregasPage() {
   const { data: students } = await supabase
     .from("students")
     .select("id, name, class_id")
+    .eq("archived", false)
     .order("name");
 
   const { data: activities } = await supabase
