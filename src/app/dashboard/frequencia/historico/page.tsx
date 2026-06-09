@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
 import { supabase } from "../../../../lib/supabase";
 import { AttendanceHistoryFilter } from "../../../../components/AttendanceHistoryFilter";
 
@@ -24,6 +25,8 @@ type RawRelatedDiary =
 type RawAttendanceItem = {
   id: string;
   date: string;
+  lesson_id?: string | null;
+  created_at?: string | null;
   status: string;
   arrival_time: string | null;
   notes: string | null;
@@ -35,6 +38,8 @@ type RawAttendanceItem = {
 type AttendanceItem = {
   id: string;
   date: string;
+  lesson_id: string | null;
+  created_at: string | null;
   status: string;
   arrival_time: string | null;
   notes: string | null;
@@ -74,41 +79,82 @@ function getDiaryContent(data: RawRelatedDiary) {
 }
 
 export default async function HistoricoFrequenciaPage() {
-  const { data: attendance, error } = await supabase
-    .from("attendance")
-    .select(`
-      id,
-      date,
-      status,
-      arrival_time,
-      notes,
-      students (
-        name
-      ),
-      classes (
-        name
-      ),
-      lesson_diary (
-        content
-      )
-    `)
-    .order("date", { ascending: false });
+  const selectWithCreatedAt = `
+    id,
+    date,
+    lesson_id,
+    created_at,
+    status,
+    arrival_time,
+    notes,
+    students (
+      name
+    ),
+    classes (
+      name
+    ),
+    lesson_diary (
+      content
+    )
+  `;
 
-  if (error) {
+  const selectWithoutCreatedAt = `
+    id,
+    date,
+    lesson_id,
+    status,
+    arrival_time,
+    notes,
+    students (
+      name
+    ),
+    classes (
+      name
+    ),
+    lesson_diary (
+      content
+    )
+  `;
+
+  const resultWithCreatedAt = await supabase
+    .from("attendance")
+    .select(selectWithCreatedAt)
+    .order("date", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  let attendanceData: unknown[] | null = null;
+  let attendanceError = resultWithCreatedAt.error;
+
+  if (resultWithCreatedAt.error) {
+    const resultWithoutCreatedAt = await supabase
+      .from("attendance")
+      .select(selectWithoutCreatedAt)
+      .order("date", { ascending: false });
+
+    attendanceData = resultWithoutCreatedAt.data as unknown[] | null;
+    attendanceError = resultWithoutCreatedAt.error;
+  } else {
+    attendanceData = resultWithCreatedAt.data as unknown[] | null;
+  }
+
+  if (attendanceError) {
     return (
       <div className="p-6 text-white">
         <h1 className="text-3xl font-bold">Erro ao carregar histórico</h1>
 
-        <p className="mt-2 text-red-300">{error.message}</p>
+        <p className="mt-2 text-red-300">{attendanceError.message}</p>
       </div>
     );
   }
 
-  const rawAttendance = (attendance as unknown as RawAttendanceItem[] | null) ?? [];
+  const rawAttendance =
+    (attendanceData as RawAttendanceItem[] | null) ?? [];
 
   const safeAttendance: AttendanceItem[] = rawAttendance.map((item) => ({
     id: String(item.id),
     date: String(item.date),
+    lesson_id: item.lesson_id ? String(item.lesson_id) : null,
+    created_at: item.created_at ? String(item.created_at) : null,
     status: String(item.status),
     arrival_time: item.arrival_time,
     notes: item.notes,

@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import toast from "react-hot-toast";
 import {
+  ChevronDown,
   Clipboard,
   Edit3,
   Eye,
@@ -17,6 +18,8 @@ import { supabase } from "../lib/supabase";
 type AttendanceItem = {
   id: string;
   date: string;
+  lesson_id: string | null;
+  created_at: string | null;
   status: string;
   arrival_time: string | null;
   notes: string | null;
@@ -124,6 +127,25 @@ function formatDate(date: string) {
   return parsedDate.toLocaleDateString("pt-BR");
 }
 
+function formatTime(value: string | null | undefined) {
+  if (!value) {
+    return "Sem horário";
+  }
+
+  const parsedDate = new Date(value);
+
+  if (!Number.isNaN(parsedDate.getTime())) {
+    return parsedDate.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  const timeMatch = value.match(/\d{2}:\d{2}/);
+
+  return timeMatch?.[0] ?? "Sem horário";
+}
+
 function getStatusIcon(status: string) {
   if (status === "Presente") {
     return "✅";
@@ -142,37 +164,58 @@ export function AttendanceHistoryFilter({
   attendance: AttendanceItem[];
 }) {
   const [search, setSearch] = useState("");
+  const [selectedClassName, setSelectedClassName] = useState("");
   const [openGroup, setOpenGroup] = useState("");
   const [editingGroup, setEditingGroup] = useState("");
   const [editRecords, setEditRecords] = useState<Record<string, EditRecord>>(
     {}
   );
 
+  const classOptions = useMemo(() => {
+    const classNames = attendance
+      .map((item) => item.classes?.name || "Turma")
+      .filter(Boolean);
+
+    return Array.from(new Set(classNames)).sort((a, b) =>
+      a.localeCompare(b, "pt-BR")
+    );
+  }, [attendance]);
+
   const filteredAttendance = useMemo(() => {
     const normalizedSearch = normalizeText(search);
 
-    if (!normalizedSearch) return attendance;
-
     return attendance.filter((item) => {
+      const className = item.classes?.name || "Turma";
+
+      if (selectedClassName && className !== selectedClassName) {
+        return false;
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
+
       const text = normalizeText(`
         ${item.students?.name || ""}
-        ${item.classes?.name || ""}
+        ${className}
         ${item.lesson_diary?.content || ""}
         ${item.status || ""}
         ${item.notes || ""}
+        ${formatDate(item.date)}
+        ${formatTime(item.created_at)}
       `);
 
       return text.includes(normalizedSearch);
     });
-  }, [attendance, search]);
+  }, [attendance, search, selectedClassName]);
 
   const groups = useMemo(() => {
     const grouped = new Map<string, AttendanceItem[]>();
 
     filteredAttendance.forEach((item) => {
-      const key = `${item.date}-${item.classes?.name || "Turma"}-${
-        item.lesson_diary?.content || "Aula"
-      }`;
+      const key = `${item.date}-${item.lesson_id || "sem-aula"}-${
+        item.classes?.name || "Turma"
+      }-${item.lesson_diary?.content || "Aula"}`;
 
       if (!grouped.has(key)) {
         grouped.set(key, []);
@@ -181,16 +224,31 @@ export function AttendanceHistoryFilter({
       grouped.get(key)?.push(item);
     });
 
-    return Array.from(grouped.entries()).map(([key, items]) => ({
-      key,
-      items,
-      date: items[0]?.date,
-      className: items[0]?.classes?.name || "Turma",
-      content: items[0]?.lesson_diary?.content || "Aula sem conteúdo",
-      present: items.filter((item) => item.status === "Presente").length,
-      absences: items.filter((item) => item.status === "Falta").length,
-      delays: items.filter((item) => item.status === "Atraso").length,
-    }));
+    return Array.from(grouped.entries())
+      .map(([key, items]) => {
+        const first = items[0];
+
+        return {
+          key,
+          items,
+          date: first?.date || "",
+          createdAt: first?.created_at || null,
+          className: first?.classes?.name || "Turma",
+          content: first?.lesson_diary?.content || "Aula sem conteúdo",
+          present: items.filter((item) => item.status === "Presente").length,
+          absences: items.filter((item) => item.status === "Falta").length,
+          delays: items.filter((item) => item.status === "Atraso").length,
+        };
+      })
+      .sort((a, b) => {
+        const dateCompare = String(b.date).localeCompare(String(a.date));
+
+        if (dateCompare !== 0) {
+          return dateCompare;
+        }
+
+        return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+      });
   }, [filteredAttendance]);
 
   function copyGroupReport(items: AttendanceItem[]) {
@@ -203,6 +261,7 @@ export function AttendanceHistoryFilter({
 
     const className = first.classes?.name || "Turma";
     const date = formatDate(first.date);
+    const time = formatTime(first.created_at);
     const content = first.lesson_diary?.content || "Aula sem conteúdo";
 
     const presentItems = items.filter((item) => item.status === "Presente");
@@ -247,6 +306,7 @@ export function AttendanceHistoryFilter({
 
 🏫 *Turma:* ${className}
 📅 *Data:* ${date}
+🕒 *Horário:* ${time}
 
 📚 *Aula / Conteúdo*
 ${content}
@@ -355,22 +415,54 @@ _${motivationalMessage}_`;
     window.location.reload();
   }
 
+  function toggleGroup(groupKey: string) {
+    setOpenGroup((current) => (current === groupKey ? "" : groupKey));
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-5">
-        <div className="flex h-12 items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4">
-          <Search size={18} className="text-slate-500" />
+        <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <div className="relative">
+            <select
+              value={selectedClassName}
+              onChange={(event) => {
+                setSelectedClassName(event.target.value);
+                setOpenGroup("");
+                setEditingGroup("");
+                setEditRecords({});
+              }}
+              className="h-12 w-full appearance-none rounded-2xl border border-slate-700 bg-slate-950 px-4 pr-10 text-sm text-white outline-none transition focus:border-blue-400"
+            >
+              <option value="">Todas as turmas</option>
 
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Pesquisar por aluno, turma, aula, status ou observação..."
-            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
-          />
+              {classOptions.map((className) => (
+                <option key={className} value={className}>
+                  {className}
+                </option>
+              ))}
+            </select>
+
+            <ChevronDown
+              size={18}
+              className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"
+            />
+          </div>
+
+          <div className="flex h-12 items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4">
+            <Search size={18} className="text-slate-500" />
+
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Pesquisar por aluno, aula, status ou observação..."
+              className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
+            />
+          </div>
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         {groups.length === 0 ? (
           <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 text-slate-400">
             Nenhuma chamada encontrada.
@@ -383,189 +475,228 @@ _${motivationalMessage}_`;
             return (
               <div
                 key={group.key}
-                className="rounded-3xl border border-slate-800 bg-slate-900/40 p-5"
+                className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/40"
               >
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <h2 className="text-xl font-bold text-white">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleGroup(group.key)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      toggleGroup(group.key);
+                    }
+                  }}
+                  className="grid cursor-pointer gap-3 p-4 transition hover:bg-slate-800/40 lg:grid-cols-[minmax(170px,1.3fr)_120px_100px_auto] lg:items-center"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-black uppercase tracking-wide text-white">
                       {group.className}
-                    </h2>
-
-                    <p className="mt-1 text-sm text-slate-400">
-                      {formatDate(group.date)} · {group.content}
                     </p>
+                  </div>
+
+                  <div className="text-sm font-semibold text-slate-300">
+                    {formatDate(group.date)}
+                  </div>
+
+                  <div className="text-sm font-semibold text-slate-300">
+                    {formatTime(group.createdAt)}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                    <IconActionButton
+                      title="Detalhes"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleGroup(group.key);
+                      }}
+                      className="bg-blue-500 text-white hover:bg-blue-400"
+                    >
+                      <Eye size={16} />
+                    </IconActionButton>
+
+                    <IconActionButton
+                      title="Copiar"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        copyGroupReport(group.items);
+                      }}
+                      className="bg-emerald-500 text-white hover:bg-emerald-400"
+                    >
+                      <Clipboard size={16} />
+                    </IconActionButton>
+
+                    <IconActionButton
+                      title="Editar"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        startEditGroup(group.key, group.items);
+                      }}
+                      className="bg-yellow-500 text-black hover:bg-yellow-400"
+                    >
+                      <Edit3 size={16} />
+                    </IconActionButton>
+
+                    <IconActionButton
+                      title="Excluir"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteWholeCall(group.items);
+                      }}
+                      className="bg-red-500 text-white hover:bg-red-400"
+                    >
+                      <Trash2 size={16} />
+                    </IconActionButton>
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
-                  <button
-                    onClick={() => setOpenGroup(isOpen ? "" : group.key)}
-                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-500 text-sm font-semibold text-white transition hover:bg-blue-400"
-                  >
-                    <Eye size={16} />
-                    Ver detalhes
-                  </button>
-
-                  <button
-                    onClick={() => copyGroupReport(group.items)}
-                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-500 text-sm font-semibold text-white transition hover:bg-emerald-400"
-                  >
-                    <Clipboard size={16} />
-                    Copiar relatório
-                  </button>
-
-                  <button
-                    onClick={() => startEditGroup(group.key, group.items)}
-                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-yellow-500 text-sm font-semibold text-black transition hover:bg-yellow-400"
-                  >
-                    <Edit3 size={16} />
-                    Editar chamada
-                  </button>
-
-                  <button
-                    onClick={() => deleteWholeCall(group.items)}
-                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-red-500 text-sm font-semibold text-white transition hover:bg-red-400"
-                  >
-                    <Trash2 size={16} />
-                    Excluir chamada
-                  </button>
-                </div>
-
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <StatusSummaryCard
-                    title="Presentes"
-                    value={group.present}
-                    className="border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                  />
-
-                  <StatusSummaryCard
-                    title="Faltas"
-                    value={group.absences}
-                    className="border-red-500/20 bg-red-500/10 text-red-300"
-                  />
-
-                  <StatusSummaryCard
-                    title="Atrasos"
-                    value={group.delays}
-                    className="border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
-                  />
-                </div>
-
                 {isOpen && (
-                  <div className="mt-4 space-y-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-                    {group.items.map((item) => {
-                      const editRecord = editRecords[item.id];
+                  <div className="space-y-4 border-t border-slate-800 bg-slate-950/30 p-4">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                        Aula / conteúdo
+                      </p>
 
-                      return (
-                        <div
-                          key={item.id}
-                          className="rounded-2xl border border-slate-800 bg-slate-900/60 p-3"
-                        >
-                          {isEditing ? (
-                            <div className="grid gap-3 lg:grid-cols-[1fr_140px_120px_1fr] lg:items-center">
-                              <div>
-                                <p className="font-semibold text-white">
-                                  {getShortStudentName(
-                                    item.students?.name || "Aluno"
-                                  )}
-                                </p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-200">
+                        {group.content}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <StatusSummaryCard
+                        title="Presentes"
+                        value={group.present}
+                        className="border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                      />
+
+                      <StatusSummaryCard
+                        title="Faltas"
+                        value={group.absences}
+                        className="border-red-500/20 bg-red-500/10 text-red-300"
+                      />
+
+                      <StatusSummaryCard
+                        title="Atrasos"
+                        value={group.delays}
+                        className="border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
+                      />
+                    </div>
+
+                    <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                      {group.items.map((item) => {
+                        const editRecord = editRecords[item.id];
+
+                        return (
+                          <div
+                            key={item.id}
+                            className="rounded-2xl border border-slate-800 bg-slate-900/60 p-3"
+                          >
+                            {isEditing ? (
+                              <div className="grid gap-3 lg:grid-cols-[1fr_140px_120px_1fr] lg:items-center">
+                                <div>
+                                  <p className="font-semibold text-white">
+                                    {getShortStudentName(
+                                      item.students?.name || "Aluno"
+                                    )}
+                                  </p>
+                                </div>
+
+                                <select
+                                  value={editRecord?.status || item.status}
+                                  onChange={(event) =>
+                                    updateEditRecord(
+                                      item.id,
+                                      "status",
+                                      event.target.value
+                                    )
+                                  }
+                                  className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400"
+                                >
+                                  <option value="Presente">Presente</option>
+                                  <option value="Falta">Falta</option>
+                                  <option value="Atraso">Atraso</option>
+                                </select>
+
+                                <input
+                                  type="time"
+                                  value={editRecord?.arrival_time || ""}
+                                  disabled={
+                                    (editRecord?.status || item.status) !==
+                                    "Atraso"
+                                  }
+                                  onChange={(event) =>
+                                    updateEditRecord(
+                                      item.id,
+                                      "arrival_time",
+                                      event.target.value
+                                    )
+                                  }
+                                  style={{ colorScheme: "dark" }}
+                                  className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400 disabled:opacity-40"
+                                />
+
+                                <input
+                                  value={editRecord?.notes || ""}
+                                  onChange={(event) =>
+                                    updateEditRecord(
+                                      item.id,
+                                      "notes",
+                                      event.target.value
+                                    )
+                                  }
+                                  placeholder="Observação..."
+                                  className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400"
+                                />
                               </div>
+                            ) : (
+                              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                  <p className="font-semibold text-white">
+                                    {getShortStudentName(
+                                      item.students?.name || "Aluno"
+                                    )}
+                                  </p>
 
-                              <select
-                                value={editRecord?.status || item.status}
-                                onChange={(event) =>
-                                  updateEditRecord(
-                                    item.id,
-                                    "status",
-                                    event.target.value
-                                  )
-                                }
-                                className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400"
-                              >
-                                <option value="Presente">Presente</option>
-                                <option value="Falta">Falta</option>
-                                <option value="Atraso">Atraso</option>
-                              </select>
+                                  <p className="text-sm text-slate-400">
+                                    {getStatusIcon(item.status)} {item.status}
+                                    {item.status === "Atraso" &&
+                                    item.arrival_time
+                                      ? ` · ${item.arrival_time}`
+                                      : ""}
+                                  </p>
+                                </div>
 
-                              <input
-                                type="time"
-                                value={editRecord?.arrival_time || ""}
-                                disabled={
-                                  (editRecord?.status || item.status) !==
-                                  "Atraso"
-                                }
-                                onChange={(event) =>
-                                  updateEditRecord(
-                                    item.id,
-                                    "arrival_time",
-                                    event.target.value
-                                  )
-                                }
-                                style={{ colorScheme: "dark" }}
-                                className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400 disabled:opacity-40"
-                              />
-
-                              <input
-                                value={editRecord?.notes || ""}
-                                onChange={(event) =>
-                                  updateEditRecord(
-                                    item.id,
-                                    "notes",
-                                    event.target.value
-                                  )
-                                }
-                                placeholder="Observação..."
-                                className="h-10 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400"
-                              />
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                              <div>
-                                <p className="font-semibold text-white">
-                                  {getShortStudentName(
-                                    item.students?.name || "Aluno"
-                                  )}
-                                </p>
-
-                                <p className="text-sm text-slate-400">
-                                  {getStatusIcon(item.status)} {item.status}
-                                  {item.status === "Atraso" &&
-                                  item.arrival_time
-                                    ? ` · ${item.arrival_time}`
-                                    : ""}
-                                </p>
+                                {item.notes && (
+                                  <p className="text-sm text-slate-400">
+                                    {item.notes}
+                                  </p>
+                                )}
                               </div>
+                            )}
+                          </div>
+                        );
+                      })}
 
-                              {item.notes && (
-                                <p className="text-sm text-slate-400">
-                                  {item.notes}
-                                </p>
-                              )}
-                            </div>
-                          )}
+                      {isEditing && (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <button
+                            onClick={() => saveEditGroup(group.items)}
+                            className="flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-500 text-sm font-semibold text-white transition hover:bg-emerald-400"
+                          >
+                            <Save size={16} />
+                            Salvar edição
+                          </button>
+
+                          <button
+                            onClick={cancelEdit}
+                            className="flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+                          >
+                            <X size={16} />
+                            Cancelar
+                          </button>
                         </div>
-                      );
-                    })}
-
-                    {isEditing && (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <button
-                          onClick={() => saveEditGroup(group.items)}
-                          className="flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-500 text-sm font-semibold text-white transition hover:bg-emerald-400"
-                        >
-                          <Save size={16} />
-                          Salvar edição
-                        </button>
-
-                        <button
-                          onClick={cancelEdit}
-                          className="flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
-                        >
-                          <X size={16} />
-                          Cancelar
-                        </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -574,6 +705,30 @@ _${motivationalMessage}_`;
         )}
       </div>
     </div>
+  );
+}
+
+function IconActionButton({
+  title,
+  children,
+  className,
+  onClick,
+}: {
+  title: string;
+  children: ReactNode;
+  className: string;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      className={`flex h-9 w-9 items-center justify-center rounded-xl text-sm font-semibold transition ${className}`}
+    >
+      {children}
+    </button>
   );
 }
 

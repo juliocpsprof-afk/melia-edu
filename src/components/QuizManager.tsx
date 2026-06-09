@@ -1,17 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Archive,
   CheckCircle2,
   ChevronRight,
   Clock3,
   ClipboardList,
+  Copy,
+  Database,
   Gamepad2,
   Layers3,
   Loader2,
   MonitorPlay,
   Play,
+  PlusCircle,
   RefreshCw,
   Rocket,
   Save,
@@ -38,13 +42,16 @@ type StudentItem = {
 type QuizMode = "assignment" | "live";
 type QuizTheme = "neon" | "arcade" | "energy" | "classic";
 type QuizResultType = "grade" | "ranking";
+type CreationTarget = "class-only" | "class-and-template" | "template-only";
+
+type QuizOption = {
+  id: string;
+  text: string;
+};
 
 type ParsedQuestion = {
   questionText: string;
-  options: {
-    id: string;
-    text: string;
-  }[];
+  options: QuizOption[];
   correctOptionId: string;
 };
 
@@ -73,10 +80,31 @@ type QuizQuestion = {
   quiz_id: string;
   question_order: number;
   question_text: string;
-  options: {
-    id: string;
-    text: string;
-  }[];
+  options: QuizOption[];
+  correct_option_id: string;
+};
+
+type QuizTemplate = {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  mode: QuizMode | string | null;
+  theme: QuizTheme | string | null;
+  result_type: QuizResultType | string | null;
+  total_questions: number | null;
+  grade_weight: number | null;
+  time_per_question: number | null;
+  created_at: string | null;
+  archived_at: string | null;
+};
+
+type QuizTemplateQuestion = {
+  id: string;
+  template_id: string;
+  question_order: number;
+  question_text: string;
+  options: QuizOption[];
   correct_option_id: string;
 };
 
@@ -165,8 +193,34 @@ const timeOptions = [
   { value: 90, label: "90s" },
 ];
 
+const templateCategories = [
+  "Revisão",
+  "Diagnóstico",
+  "Fixação",
+  "Avaliação",
+  "Simulado",
+  "Dinâmica",
+  "Conhecimentos gerais",
+];
+
 function shuffleArray<T>(items: T[]) {
   return [...items].sort(() => Math.random() - 0.5);
+}
+
+function normalizeText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function getErrorMessage(error: unknown) {
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message?: unknown }).message);
+  }
+
+  return "Não foi possível concluir a operação.";
 }
 
 function getStatusLabel(status: string | null) {
@@ -184,12 +238,23 @@ function getResultTypeLabel(resultType: string | null, mode: string | null) {
   return "Converte em nota";
 }
 
-function normalizeText(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+function getModeLabel(mode: string | null) {
+  if (mode === "live") return "Sala de aula";
+  return "Atividade";
+}
+
+function getClassNameById(classes: ClassItem[], classId: string) {
+  return classes.find((classItem) => classItem.id === classId)?.name ?? "Turma";
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleDateString("pt-BR");
 }
 
 function parseQuizText(rawText: string): ParsedQuestion[] {
@@ -218,7 +283,6 @@ function parseQuizText(rawText: string): ParsedQuestion[] {
     }
 
     const questionNumber = parsedQuestions.length + 1;
-
     const baseOptions = [
       {
         id: `q${questionNumber}_a`,
@@ -258,12 +322,18 @@ function parseQuizText(rawText: string): ParsedQuestion[] {
   return parsedQuestions;
 }
 
-function getErrorMessage(error: unknown) {
-  if (error && typeof error === "object" && "message" in error) {
-    return String((error as { message?: unknown }).message);
-  }
-
-  return "Não foi possível concluir a operação.";
+function normalizeTemplateQuestion(
+  question: QuizTemplateQuestion,
+  questionNumber: number
+): ParsedQuestion {
+  return {
+    questionText: question.question_text,
+    options: (question.options ?? []).map((option, index) => ({
+      id: option.id || `q${questionNumber}_${index}`,
+      text: option.text,
+    })),
+    correctOptionId: question.correct_option_id,
+  };
 }
 
 function getRemainingSeconds(quiz: Quiz, now: number) {
@@ -288,21 +358,18 @@ function getTimerPercent(quiz: Quiz, now: number) {
   const totalSeconds = Number(quiz.time_per_question ?? 45);
   const remaining = getRemainingSeconds(quiz, now);
 
-  if (totalSeconds <= 0) {
-    return 0;
-  }
+  if (totalSeconds <= 0) return 0;
 
   return Math.max(0, Math.min(100, (remaining / totalSeconds) * 100));
 }
 
-function getClassNameById(classes: ClassItem[], classId: string) {
-  return classes.find((classItem) => classItem.id === classId)?.name ?? "Turma";
-}
-
 export function QuizManager({ classes }: { classes: ClassItem[] }) {
+  const [creationTarget, setCreationTarget] =
+    useState<CreationTarget>("class-only");
   const [classId, setClassId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [templateCategory, setTemplateCategory] = useState("Revisão");
   const [mode, setMode] = useState<QuizMode>("assignment");
   const [theme, setTheme] = useState<QuizTheme>("neon");
   const [resultType, setResultType] = useState<QuizResultType>("ranking");
@@ -311,8 +378,12 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
   const [rawQuestions, setRawQuestions] = useState("");
 
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [templates, setTemplates] = useState<QuizTemplate[]>([]);
   const [questionsByQuiz, setQuestionsByQuiz] = useState<
     Record<string, QuizQuestion[]>
+  >({});
+  const [questionsByTemplate, setQuestionsByTemplate] = useState<
+    Record<string, QuizTemplateQuestion[]>
   >({});
   const [participantsByQuiz, setParticipantsByQuiz] = useState<
     Record<string, QuizParticipant[]>
@@ -328,6 +399,8 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
   >({});
 
   const [search, setSearch] = useState("");
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [templateTargetClassId, setTemplateTargetClassId] = useState("");
   const [creating, setCreating] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState("");
   const [message, setMessage] = useState<Message | null>(null);
@@ -336,6 +409,10 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
   const parsedQuestions = useMemo(() => {
     return parseQuizText(rawQuestions);
   }, [rawQuestions]);
+
+  const shouldNeedClass = creationTarget !== "template-only";
+  const shouldSaveTemplate = creationTarget !== "class-only";
+  const shouldGenerateGrade = mode === "assignment" || resultType === "grade";
 
   const assignmentQuizzes = useMemo(() => {
     return quizzes.filter((quiz) => quiz.mode !== "live");
@@ -373,7 +450,20 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
     });
   }, [liveQuizzes, search, classes]);
 
-  const shouldGenerateGrade = mode === "assignment" || resultType === "grade";
+  const filteredTemplates = useMemo(() => {
+    const normalizedSearch = normalizeText(templateSearch);
+    const activeTemplates = templates.filter((template) => !template.archived_at);
+
+    if (!normalizedSearch) return activeTemplates;
+
+    return activeTemplates.filter((template) =>
+      normalizeText(
+        `${template.title} ${template.description ?? ""} ${
+          template.category ?? ""
+        } ${template.mode ?? ""}`
+      ).includes(normalizedSearch)
+    );
+  }, [templates, templateSearch]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -482,15 +572,13 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
     if (!answersResponse.error) {
       const groupedAnswers: Record<string, QuizAnswer[]> = {};
 
-      ((answersResponse.data as QuizAnswer[] | null) ?? []).forEach(
-        (answer) => {
-          if (!groupedAnswers[answer.quiz_id]) {
-            groupedAnswers[answer.quiz_id] = [];
-          }
-
-          groupedAnswers[answer.quiz_id].push(answer);
+      ((answersResponse.data as QuizAnswer[] | null) ?? []).forEach((answer) => {
+        if (!groupedAnswers[answer.quiz_id]) {
+          groupedAnswers[answer.quiz_id] = [];
         }
-      );
+
+        groupedAnswers[answer.quiz_id].push(answer);
+      });
 
       setAnswersByQuiz(groupedAnswers);
     }
@@ -512,8 +600,62 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
     }
   }
 
+  async function loadTemplates() {
+    const { data, error } = await supabase
+      .from("quiz_templates")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error(error);
+      setTemplates([]);
+      setQuestionsByTemplate({});
+      return;
+    }
+
+    const loadedTemplates = (data as QuizTemplate[] | null) ?? [];
+    setTemplates(loadedTemplates);
+
+    const templateIds = loadedTemplates.map((template) => template.id);
+
+    if (templateIds.length === 0) {
+      setQuestionsByTemplate({});
+      return;
+    }
+
+    const { data: questionsData, error: questionsError } = await supabase
+      .from("quiz_template_questions")
+      .select("*")
+      .in("template_id", templateIds)
+      .order("question_order", { ascending: true });
+
+    if (questionsError) {
+      console.error(questionsError);
+      setQuestionsByTemplate({});
+      return;
+    }
+
+    const groupedQuestions: Record<string, QuizTemplateQuestion[]> = {};
+
+    ((questionsData as QuizTemplateQuestion[] | null) ?? []).forEach(
+      (question) => {
+        if (!groupedQuestions[question.template_id]) {
+          groupedQuestions[question.template_id] = [];
+        }
+
+        groupedQuestions[question.template_id].push(question);
+      }
+    );
+
+    setQuestionsByTemplate(groupedQuestions);
+  }
+
+  async function loadEverything() {
+    await Promise.all([loadQuizzes(), loadTemplates()]);
+  }
+
   useEffect(() => {
-    loadQuizzes();
+    loadEverything();
 
     const channel = supabase
       .channel("quiz_manager_realtime")
@@ -553,10 +695,28 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
         },
         () => loadQuizzes()
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "quiz_templates",
+        },
+        () => loadTemplates()
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "quiz_template_questions",
+        },
+        () => loadTemplates()
+      )
       .subscribe();
 
     const fallbackPolling = setInterval(() => {
-      loadQuizzes();
+      loadEverything();
     }, 5000);
 
     return () => {
@@ -565,15 +725,147 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
     };
   }, []);
 
+  async function createQuizForClass({
+    targetClassId,
+    quizTitle,
+    quizDescription,
+    quizMode,
+    quizTheme,
+    quizResultType,
+    quizGradeWeight,
+    quizTimePerQuestion,
+    questions,
+  }: {
+    targetClassId: string;
+    quizTitle: string;
+    quizDescription: string | null;
+    quizMode: QuizMode;
+    quizTheme: QuizTheme;
+    quizResultType: QuizResultType;
+    quizGradeWeight: number;
+    quizTimePerQuestion: number;
+    questions: ParsedQuestion[];
+  }) {
+    const { data: createdQuiz, error: quizError } = await supabase
+      .from("quizzes")
+      .insert({
+        class_id: targetClassId,
+        title: quizTitle,
+        description: quizDescription,
+        mode: quizMode,
+        theme: quizTheme,
+        result_type: quizMode === "live" ? quizResultType : "grade",
+        status: quizMode === "live" ? "waiting" : "active",
+        total_questions: questions.length,
+        grade_weight: quizGradeWeight,
+        time_per_question: quizTimePerQuestion,
+        current_question_order: 0,
+        current_question_started_at: null,
+        archived_at: null,
+      })
+      .select("id")
+      .single();
+
+    if (quizError || !createdQuiz?.id) {
+      throw quizError || new Error("Não foi possível criar o quiz.");
+    }
+
+    const questionRows = questions.map((question, index) => ({
+      quiz_id: String(createdQuiz.id),
+      question_order: index + 1,
+      question_text: question.questionText,
+      options: question.options,
+      correct_option_id: question.correctOptionId,
+    }));
+
+    const { error: questionsError } = await supabase
+      .from("quiz_questions")
+      .insert(questionRows);
+
+    if (questionsError) {
+      throw questionsError;
+    }
+
+    return String(createdQuiz.id);
+  }
+
+  async function saveQuizTemplate({
+    templateTitle,
+    templateDescription,
+    category,
+    templateMode,
+    templateTheme,
+    templateResultType,
+    templateGradeWeight,
+    templateTimePerQuestion,
+    questions,
+  }: {
+    templateTitle: string;
+    templateDescription: string | null;
+    category: string | null;
+    templateMode: QuizMode;
+    templateTheme: QuizTheme;
+    templateResultType: QuizResultType;
+    templateGradeWeight: number;
+    templateTimePerQuestion: number;
+    questions: ParsedQuestion[];
+  }) {
+    const { data: createdTemplate, error: templateError } = await supabase
+      .from("quiz_templates")
+      .insert({
+        title: templateTitle,
+        description: templateDescription,
+        category,
+        mode: templateMode,
+        theme: templateTheme,
+        result_type: templateMode === "live" ? templateResultType : "grade",
+        total_questions: questions.length,
+        grade_weight: templateGradeWeight,
+        time_per_question: templateTimePerQuestion,
+        archived_at: null,
+      })
+      .select("id")
+      .single();
+
+    if (templateError || !createdTemplate?.id) {
+      throw templateError || new Error("Não foi possível salvar o modelo.");
+    }
+
+    const questionRows = questions.map((question, index) => ({
+      template_id: String(createdTemplate.id),
+      question_order: index + 1,
+      question_text: question.questionText,
+      options: question.options,
+      correct_option_id: question.correctOptionId,
+    }));
+
+    const { error: questionsError } = await supabase
+      .from("quiz_template_questions")
+      .insert(questionRows);
+
+    if (questionsError) {
+      throw questionsError;
+    }
+
+    return String(createdTemplate.id);
+  }
+
   async function handleCreateQuiz() {
     setMessage(null);
 
-    if (!classId || !title.trim()) {
+    if (shouldNeedClass && !classId) {
       setMessage({
         type: "error",
-        text: "Selecione a turma e informe o título do quiz.",
+        text: "Selecione a turma para criar o quiz.",
       });
+      return;
+    }
 
+    if (!title.trim()) {
+      setMessage({
+        type: "error",
+        text: "Informe o título do quiz.",
+      });
       return;
     }
 
@@ -582,7 +874,6 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
         type: "error",
         text: "Cole perguntas no padrão: pergunta + 4 alternativas. A primeira alternativa deve ser a correta.",
       });
-
       return;
     }
 
@@ -594,7 +885,6 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
         type: "error",
         text: "Informe um tempo válido por pergunta.",
       });
-
       return;
     }
 
@@ -606,72 +896,65 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
         type: "error",
         text: "Informe um valor válido para a nota.",
       });
-
       return;
     }
 
     setCreating(true);
 
     try {
-      const { data: createdQuiz, error: quizError } = await supabase
-        .from("quizzes")
-        .insert({
-          class_id: classId,
-          title: title.trim(),
-          description: description.trim() || null,
-          mode,
-          theme,
-          result_type: mode === "live" ? resultType : "grade",
-          status: mode === "live" ? "waiting" : "active",
-          total_questions: parsedQuestions.length,
-          grade_weight: numericWeight,
-          time_per_question: numericTime,
-          current_question_order: 0,
-          current_question_started_at: null,
-          archived_at: null,
-        })
-        .select("id")
-        .single();
-
-      if (quizError || !createdQuiz?.id) {
-        throw quizError || new Error("Não foi possível criar o quiz.");
+      if (shouldNeedClass) {
+        await createQuizForClass({
+          targetClassId: classId,
+          quizTitle: title.trim(),
+          quizDescription: description.trim() || null,
+          quizMode: mode,
+          quizTheme: theme,
+          quizResultType: resultType,
+          quizGradeWeight: numericWeight,
+          quizTimePerQuestion: numericTime,
+          questions: parsedQuestions,
+        });
       }
 
-      const questionRows = parsedQuestions.map((question, index) => ({
-        quiz_id: createdQuiz.id,
-        question_order: index + 1,
-        question_text: question.questionText,
-        options: question.options,
-        correct_option_id: question.correctOptionId,
-      }));
-
-      const { error: questionsError } = await supabase
-        .from("quiz_questions")
-        .insert(questionRows);
-
-      if (questionsError) {
-        throw questionsError;
+      if (shouldSaveTemplate) {
+        await saveQuizTemplate({
+          templateTitle: title.trim(),
+          templateDescription: description.trim() || null,
+          category: templateCategory.trim() || null,
+          templateMode: mode,
+          templateTheme: theme,
+          templateResultType: resultType,
+          templateGradeWeight: numericWeight,
+          templateTimePerQuestion: numericTime,
+          questions: parsedQuestions,
+        });
       }
+
+      const resultText =
+        creationTarget === "class-only"
+          ? `Quiz criado para a turma com ${parsedQuestions.length} pergunta(s).`
+          : creationTarget === "class-and-template"
+          ? `Quiz criado para a turma e salvo no banco de quizzes para reutilização.`
+          : `Quiz salvo no banco de quizzes. Agora ele pode ser usado em qualquer turma.`;
 
       setMessage({
         type: "success",
-        text:
-          mode === "live"
-            ? `Quiz de sala criado com ${parsedQuestions.length} pergunta(s). Os alunos já podem entrar na sala.`
-            : `Quiz atividade criado com ${parsedQuestions.length} pergunta(s). Os alunos já podem responder sozinhos.`,
+        text: resultText,
       });
 
       setClassId("");
       setTitle("");
       setDescription("");
+      setTemplateCategory("Revisão");
       setMode("assignment");
       setTheme("neon");
       setResultType("ranking");
       setTimePerQuestion("45");
       setGradeWeight("10");
       setRawQuestions("");
+      setCreationTarget("class-only");
 
-      await loadQuizzes();
+      await loadEverything();
     } catch (error) {
       setMessage({
         type: "error",
@@ -680,6 +963,190 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
     } finally {
       setCreating(false);
     }
+  }
+
+  async function handleUseTemplate(template: QuizTemplate) {
+    setMessage(null);
+
+    if (!templateTargetClassId) {
+      setMessage({
+        type: "error",
+        text: "Selecione a turma que receberá o quiz salvo.",
+      });
+      return;
+    }
+
+    const templateQuestions = questionsByTemplate[template.id] ?? [];
+
+    if (templateQuestions.length === 0) {
+      setMessage({
+        type: "error",
+        text: "Este modelo não possui perguntas salvas.",
+      });
+      return;
+    }
+
+    setActionLoadingId(template.id);
+
+    try {
+      const templateMode = template.mode === "live" ? "live" : "assignment";
+      const templateResultType =
+        template.result_type === "ranking" ? "ranking" : "grade";
+      const templateTheme = ["neon", "arcade", "energy", "classic"].includes(
+        String(template.theme)
+      )
+        ? (template.theme as QuizTheme)
+        : "neon";
+
+      await createQuizForClass({
+        targetClassId: templateTargetClassId,
+        quizTitle: template.title,
+        quizDescription: template.description,
+        quizMode: templateMode,
+        quizTheme: templateTheme,
+        quizResultType: templateResultType,
+        quizGradeWeight: Number(template.grade_weight ?? 10),
+        quizTimePerQuestion: Number(template.time_per_question ?? 45),
+        questions: templateQuestions.map((question, index) =>
+          normalizeTemplateQuestion(question, index + 1)
+        ),
+      });
+
+      setMessage({
+        type: "success",
+        text: `Quiz "${template.title}" aplicado à turma ${getClassNameById(
+          classes,
+          templateTargetClassId
+        )}.`,
+      });
+
+      await loadQuizzes();
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: `Erro ao usar quiz salvo: ${getErrorMessage(error)}`,
+      });
+    } finally {
+      setActionLoadingId("");
+    }
+  }
+
+  async function handleSaveExistingQuizAsTemplate(quiz: Quiz) {
+    const questions = questionsByQuiz[quiz.id] ?? [];
+
+    if (questions.length === 0) {
+      setMessage({
+        type: "error",
+        text: "Este quiz não possui perguntas carregadas para salvar como modelo.",
+      });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Salvar "${quiz.title}" no banco de quizzes para reutilizar em outras turmas?`
+    );
+
+    if (!confirmed) return;
+
+    setActionLoadingId(`template-${quiz.id}`);
+    setMessage(null);
+
+    try {
+      await saveQuizTemplate({
+        templateTitle: quiz.title,
+        templateDescription: quiz.description,
+        category: "Importado de turma",
+        templateMode: quiz.mode === "live" ? "live" : "assignment",
+        templateTheme: ["neon", "arcade", "energy", "classic"].includes(
+          String(quiz.theme)
+        )
+          ? (quiz.theme as QuizTheme)
+          : "neon",
+        templateResultType: quiz.result_type === "ranking" ? "ranking" : "grade",
+        templateGradeWeight: Number(quiz.grade_weight ?? 10),
+        templateTimePerQuestion: Number(quiz.time_per_question ?? 45),
+        questions: questions.map((question) => ({
+          questionText: question.question_text,
+          options: question.options,
+          correctOptionId: question.correct_option_id,
+        })),
+      });
+
+      setMessage({
+        type: "success",
+        text: "Quiz salvo no banco de quizzes para reutilização.",
+      });
+
+      await loadTemplates();
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: `Erro ao salvar modelo: ${getErrorMessage(error)}`,
+      });
+    } finally {
+      setActionLoadingId("");
+    }
+  }
+
+  async function handleArchiveTemplate(template: QuizTemplate) {
+    const confirmed = window.confirm(
+      "Arquivar este quiz salvo? Ele deixará de aparecer no banco de uso rápido."
+    );
+
+    if (!confirmed) return;
+
+    setActionLoadingId(template.id);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("quiz_templates")
+      .update({ archived_at: new Date().toISOString() })
+      .eq("id", template.id);
+
+    setActionLoadingId("");
+
+    if (error) {
+      setMessage({
+        type: "error",
+        text: `Erro ao arquivar modelo: ${error.message}`,
+      });
+      return;
+    }
+
+    await loadTemplates();
+  }
+
+  async function handleDeleteTemplate(template: QuizTemplate) {
+    const confirmed = window.confirm(
+      "Excluir definitivamente este quiz salvo do banco? Os quizzes já aplicados às turmas não serão removidos."
+    );
+
+    if (!confirmed) return;
+
+    setActionLoadingId(template.id);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("quiz_templates")
+      .delete()
+      .eq("id", template.id);
+
+    setActionLoadingId("");
+
+    if (error) {
+      setMessage({
+        type: "error",
+        text: `Erro ao excluir modelo: ${error.message}`,
+      });
+      return;
+    }
+
+    setMessage({
+      type: "success",
+      text: "Quiz salvo excluído do banco de modelos.",
+    });
+
+    await loadTemplates();
   }
 
   async function updateQuizStatus(
@@ -701,7 +1168,6 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
         type: "error",
         text: `Erro ao atualizar quiz: ${error.message}`,
       });
-
       return;
     }
 
@@ -732,7 +1198,6 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
         status: "finished",
         live_finished_at: new Date().toISOString(),
       });
-
       return;
     }
 
@@ -755,9 +1220,7 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
       .select("score")
       .eq("student_id", studentId);
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     const scores =
       data
@@ -778,9 +1241,7 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
       .update({ average })
       .eq("id", studentId);
 
-    if (updateStudentError) {
-      throw updateStudentError;
-    }
+    if (updateStudentError) throw updateStudentError;
   }
 
   async function handleArchiveQuiz(quiz: Quiz) {
@@ -815,46 +1276,30 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
             .from("quiz_attempts")
             .select("student_id")
             .eq("quiz_id", quiz.id),
-
           supabase
             .from("quiz_answers")
             .select("student_id")
             .eq("quiz_id", quiz.id),
-
           supabase
             .from("quiz_participants")
             .select("student_id")
             .eq("quiz_id", quiz.id),
         ]);
 
-      if (attemptsResponse.error) {
-        throw attemptsResponse.error;
-      }
-
-      if (answersResponse.error) {
-        throw answersResponse.error;
-      }
-
-      if (participantsResponse.error) {
-        throw participantsResponse.error;
-      }
+      if (attemptsResponse.error) throw attemptsResponse.error;
+      if (answersResponse.error) throw answersResponse.error;
+      if (participantsResponse.error) throw participantsResponse.error;
 
       attemptsResponse.data?.forEach((item) => {
-        if (item.student_id) {
-          affectedStudentIds.add(String(item.student_id));
-        }
+        if (item.student_id) affectedStudentIds.add(String(item.student_id));
       });
 
       answersResponse.data?.forEach((item) => {
-        if (item.student_id) {
-          affectedStudentIds.add(String(item.student_id));
-        }
+        if (item.student_id) affectedStudentIds.add(String(item.student_id));
       });
 
       participantsResponse.data?.forEach((item) => {
-        if (item.student_id) {
-          affectedStudentIds.add(String(item.student_id));
-        }
+        if (item.student_id) affectedStudentIds.add(String(item.student_id));
       });
 
       const { error: linkedGradesError } = await supabase
@@ -863,9 +1308,7 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
         .eq("source_type", "quiz")
         .eq("source_id", quiz.id);
 
-      if (linkedGradesError) {
-        throw linkedGradesError;
-      }
+      if (linkedGradesError) throw linkedGradesError;
 
       const affectedIds = Array.from(affectedStudentIds);
 
@@ -877,9 +1320,7 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
           .is("source_type", null)
           .in("student_id", affectedIds);
 
-        if (legacyGradesError) {
-          throw legacyGradesError;
-        }
+        if (legacyGradesError) throw legacyGradesError;
       }
 
       const { error: deleteQuizError } = await supabase
@@ -887,9 +1328,7 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
         .delete()
         .eq("id", quiz.id);
 
-      if (deleteQuizError) {
-        throw deleteQuizError;
-      }
+      if (deleteQuizError) throw deleteQuizError;
 
       await Promise.all(
         affectedIds.map((studentId) => recalculateStudentAverage(studentId))
@@ -924,9 +1363,7 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
     const currentQuestion = getCurrentQuestion(quiz);
     const answers = answersByQuiz[quiz.id] ?? [];
 
-    if (!currentQuestion) {
-      return [];
-    }
+    if (!currentQuestion) return [];
 
     return answers.filter(
       (answer) => answer.question_id === currentQuestion.id
@@ -979,23 +1416,24 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
               </div>
 
               <h2 className="mt-4 text-3xl font-black text-white">
-                Configure o quiz da turma
+                Crie para uma turma ou salve no banco
               </h2>
 
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                No modo atividade, o aluno responde sozinho. No modo sala de
-                aula, os alunos entram em uma sala e o professor conduz as
-                perguntas ao vivo.
+                Agora você pode criar um quiz apenas para a turma atual, criar e
+                salvar como modelo, ou salvar somente no banco para usar em
+                qualquer turma depois.
               </p>
             </div>
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-4 xl:w-[340px]">
+          <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-4 xl:w-[360px]">
             <p className="text-sm font-bold text-white">Formato das perguntas</p>
 
             <p className="mt-2 text-xs leading-5 text-slate-400">
               Pergunta, resposta correta e três respostas erradas. A primeira
-              resposta de cada bloco será tratada como correta.
+              resposta de cada bloco será tratada como correta e as alternativas
+              serão embaralhadas.
             </p>
           </div>
         </div>
@@ -1019,6 +1457,53 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
         )}
 
         <div className="mt-7 grid gap-5">
+          <div className="grid gap-3 xl:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => setCreationTarget("class-only")}
+              className={`rounded-[24px] border p-4 text-left transition hover:-translate-y-1 ${
+                creationTarget === "class-only"
+                  ? "border-cyan-300 bg-cyan-500/15 shadow-xl shadow-cyan-500/10"
+                  : "border-slate-800 bg-slate-950/50 hover:border-cyan-500/40"
+              }`}
+            >
+              <p className="font-black text-white">Criar só para a turma</p>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                Uso direto, sem guardar no banco de modelos.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCreationTarget("class-and-template")}
+              className={`rounded-[24px] border p-4 text-left transition hover:-translate-y-1 ${
+                creationTarget === "class-and-template"
+                  ? "border-emerald-300 bg-emerald-500/15 shadow-xl shadow-emerald-500/10"
+                  : "border-slate-800 bg-slate-950/50 hover:border-emerald-500/40"
+              }`}
+            >
+              <p className="font-black text-white">Criar e salvar no banco</p>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                Aplica na turma e deixa disponível para outras turmas.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCreationTarget("template-only")}
+              className={`rounded-[24px] border p-4 text-left transition hover:-translate-y-1 ${
+                creationTarget === "template-only"
+                  ? "border-violet-300 bg-violet-500/15 shadow-xl shadow-violet-500/10"
+                  : "border-slate-800 bg-slate-950/50 hover:border-violet-500/40"
+              }`}
+            >
+              <p className="font-black text-white">Salvar só no banco</p>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                Cria um modelo reutilizável, sem enviar para turma agora.
+              </p>
+            </button>
+          </div>
+
           <div className="grid gap-4 lg:grid-cols-2">
             <button
               type="button"
@@ -1076,19 +1561,21 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <select
-              value={classId}
-              onChange={(event) => setClassId(event.target.value)}
-              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-fuchsia-400"
-            >
-              <option value="">Selecione a turma</option>
+            {shouldNeedClass && (
+              <select
+                value={classId}
+                onChange={(event) => setClassId(event.target.value)}
+                className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-fuchsia-400"
+              >
+                <option value="">Selecione a turma</option>
 
-              {classes.map((classItem) => (
-                <option key={classItem.id} value={classItem.id}>
-                  {classItem.name}
-                </option>
-              ))}
-            </select>
+                {classes.map((classItem) => (
+                  <option key={classItem.id} value={classItem.id}>
+                    {classItem.name}
+                  </option>
+                ))}
+              </select>
+            )}
 
             <input
               value={title}
@@ -1096,6 +1583,20 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
               placeholder="Título do quiz"
               className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-fuchsia-400"
             />
+
+            {shouldSaveTemplate && (
+              <select
+                value={templateCategory}
+                onChange={(event) => setTemplateCategory(event.target.value)}
+                className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+              >
+                {templateCategories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            )}
 
             <textarea
               value={description}
@@ -1174,9 +1675,7 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
             </div>
 
             <div className="rounded-[24px] border border-slate-800 bg-slate-950/50 p-4">
-              <p className="mb-3 text-sm font-bold text-white">
-                Tempo e valor
-              </p>
+              <p className="mb-3 text-sm font-bold text-white">Tempo e valor</p>
 
               <div className="grid grid-cols-4 gap-2">
                 {timeOptions.map((item) => (
@@ -1234,7 +1733,7 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
                   <h3 className="font-bold text-white">Prévia automática</h3>
 
                   <p className="text-sm text-slate-400">
-                    Perguntas identificadas:{" "}
+                    Perguntas identificadas: {" "}
                     <strong className="text-fuchsia-200">
                       {parsedQuestions.length}
                     </strong>
@@ -1287,456 +1786,634 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
           >
             {creating ? (
               <Loader2 className="animate-spin" size={24} />
+            ) : creationTarget === "template-only" ? (
+              <Database size={24} />
+            ) : creationTarget === "class-and-template" ? (
+              <PlusCircle size={24} />
             ) : (
               <Save size={24} />
             )}
 
-            {creating ? "Criando quiz..." : "Criar quiz agora"}
+            {creating
+              ? "Processando..."
+              : creationTarget === "template-only"
+              ? "Salvar quiz no banco"
+              : creationTarget === "class-and-template"
+              ? "Criar na turma e salvar no banco"
+              : "Criar quiz para turma"}
           </button>
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-[32px] border border-cyan-500/20 bg-cyan-500/10 p-6">
-          <div className="flex items-center gap-3">
-            <Layers3 size={26} className="text-cyan-300" />
+      <section className="rounded-[32px] border border-violet-500/20 bg-violet-500/10 p-6">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="rounded-[28px] bg-violet-500/15 p-4 text-violet-200">
+              <Database size={32} />
+            </div>
 
             <div>
               <h2 className="text-2xl font-black text-white">
-                Quizzes atividade
+                Banco de quizzes salvos
               </h2>
 
-              <p className="text-sm text-slate-400">
-                O aluno responde sozinho, sem condução do professor.
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">
+                Use um quiz pronto em qualquer turma. O modelo fica guardado e
+                cada aplicação cria uma cópia independente para a turma escolhida.
               </p>
             </div>
           </div>
 
-          <div className="mt-5 flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3">
-            <Search size={18} className="text-slate-500" />
+          <div className="grid gap-3 sm:grid-cols-2 xl:w-[560px]">
+            <select
+              value={templateTargetClassId}
+              onChange={(event) => setTemplateTargetClassId(event.target.value)}
+              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
+            >
+              <option value="">Turma que receberá o quiz</option>
+              {classes.map((classItem) => (
+                <option key={classItem.id} value={classItem.id}>
+                  {classItem.name}
+                </option>
+              ))}
+            </select>
 
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Pesquisar quiz..."
-              className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
-            />
-          </div>
-
-          <div className="mt-5 space-y-4">
-            {filteredAssignmentQuizzes.length === 0 ? (
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 text-sm text-slate-400">
-                Nenhum quiz atividade encontrado.
-              </div>
-            ) : (
-              filteredAssignmentQuizzes.map((quiz) => {
-                const attempts = attemptsByQuiz[quiz.id] ?? [];
-                const questions = questionsByQuiz[quiz.id] ?? [];
-                const className = getClassNameById(classes, quiz.class_id);
-                const loadingThis = actionLoadingId === quiz.id;
-
-                return (
-                  <div
-                    key={quiz.id}
-                    className="rounded-3xl border border-slate-800 bg-slate-950/50 p-5"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-2xl bg-cyan-500/15 p-3 text-cyan-300">
-                        <Rocket size={20} />
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap gap-2">
-                          <span className="rounded-full bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-200">
-                            Atividade
-                          </span>
-
-                          <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300">
-                            {getStatusLabel(quiz.status)}
-                          </span>
-
-                          <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">
-                            {getResultTypeLabel(
-                              quiz.result_type,
-                              quiz.mode
-                            )}
-                          </span>
-                        </div>
-
-                        <h3 className="mt-3 text-lg font-bold text-white">
-                          {quiz.title}
-                        </h3>
-
-                        <p className="mt-1 text-sm text-slate-400">
-                          {className} • {questions.length} pergunta(s)
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">
-                        <p className="text-xs text-slate-500">Responderam</p>
-                        <p className="mt-1 text-2xl font-black text-white">
-                          {attempts.length}
-                        </p>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">
-                        <p className="text-xs text-slate-500">Nota máxima</p>
-                        <p className="mt-1 text-2xl font-black text-white">
-                          {quiz.grade_weight ?? 10}
-                        </p>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">
-                        <p className="text-xs text-slate-500">Modo</p>
-                        <p className="mt-1 text-sm font-black text-cyan-200">
-                          Autônomo
-                        </p>
-                      </div>
-                    </div>
-
-                    {attempts.length > 0 && (
-                      <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-                        <p className="text-sm font-bold text-emerald-200">
-                          Últimas notas registradas
-                        </p>
-
-                        <div className="mt-3 space-y-2">
-                          {attempts.slice(0, 5).map((attempt) => {
-                            const studentName =
-                              studentNamesById[attempt.student_id] ??
-                              "Aluno sem nome";
-
-                            return (
-                              <div
-                                key={attempt.id}
-                                className="flex items-center justify-between rounded-xl bg-slate-950/50 px-3 py-2 text-sm"
-                              >
-                                <span className="truncate text-slate-300">
-                                  {studentName}
-                                </span>
-
-                                <strong className="text-emerald-200">
-                                  {Number(attempt.score ?? 0).toFixed(1)}
-                                </strong>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleArchiveQuiz(quiz)}
-                        disabled={loadingThis || quiz.status === "archived"}
-                        className="flex items-center justify-center gap-2 rounded-xl bg-yellow-500 px-3 py-2 text-sm font-bold text-black transition hover:bg-yellow-400 disabled:opacity-50"
-                      >
-                        <Archive size={15} />
-                        Arquivar
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteQuiz(quiz)}
-                        disabled={loadingThis}
-                        className="flex items-center justify-center gap-2 rounded-xl bg-red-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-red-400 disabled:opacity-50"
-                      >
-                        <Trash2 size={15} />
-                        Excluir
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3">
+              <Search size={18} className="text-slate-500" />
+              <input
+                value={templateSearch}
+                onChange={(event) => setTemplateSearch(event.target.value)}
+                placeholder="Pesquisar no banco..."
+                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+              />
+            </div>
           </div>
         </div>
 
-        <div className="rounded-[32px] border border-fuchsia-500/20 bg-fuchsia-500/10 p-6">
-          <div className="flex items-center gap-3">
-            <MonitorPlay size={26} className="text-fuchsia-300" />
-
-            <div>
-              <h2 className="text-2xl font-black text-white">
-                Quizzes sala de aula
-              </h2>
-
-              <p className="text-sm text-slate-400">
-                Professor conduz ao vivo com alunos conectados.
-              </p>
+        <div className="mt-6 grid gap-4 xl:grid-cols-2">
+          {filteredTemplates.length === 0 ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 text-sm text-slate-400 xl:col-span-2">
+              Nenhum quiz salvo no banco ainda. Crie um quiz acima usando a
+              opção “Criar e salvar no banco” ou “Salvar só no banco”.
             </div>
-          </div>
+          ) : (
+            filteredTemplates.map((template) => {
+              const questions = questionsByTemplate[template.id] ?? [];
+              const loadingThis = actionLoadingId === template.id;
 
-          <div className="mt-5 space-y-4">
-            {filteredLiveQuizzes.length === 0 ? (
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 text-sm text-slate-400">
-                Nenhum quiz sala de aula encontrado.
-              </div>
-            ) : (
-              filteredLiveQuizzes.map((quiz) => {
-                const className = getClassNameById(classes, quiz.class_id);
-                const questions = questionsByQuiz[quiz.id] ?? [];
-                const participants = participantsByQuiz[quiz.id] ?? [];
-                const ranking = getRanking(quiz);
-                const loadingThis = actionLoadingId === quiz.id;
-                const currentQuestion = getCurrentQuestion(quiz);
-                const currentAnswers = getCurrentQuestionAnswers(quiz);
-                const answeredStudentCount = new Set(
-                  currentAnswers.map((answer) => answer.student_id)
-                ).size;
-
-                const remainingSeconds = getRemainingSeconds(quiz, now);
-                const timerPercent = getTimerPercent(quiz, now);
-                const totalQuestions = quiz.total_questions ?? questions.length;
-                const currentOrder = quiz.current_question_order ?? 0;
-
-                return (
-                  <div
-                    key={quiz.id}
-                    className="rounded-3xl border border-slate-800 bg-slate-950/50 p-5"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-2xl bg-fuchsia-500/15 p-3 text-fuchsia-300">
-                        <Rocket size={20} />
+              return (
+                <div
+                  key={template.id}
+                  className="rounded-3xl border border-slate-800 bg-slate-950/50 p-5"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full bg-violet-500/10 px-3 py-1 text-xs font-bold text-violet-200">
+                          {template.category || "Sem categoria"}
+                        </span>
+                        <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300">
+                          {getModeLabel(template.mode)}
+                        </span>
+                        <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">
+                          {getResultTypeLabel(
+                            template.result_type,
+                            template.mode
+                          )}
+                        </span>
                       </div>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap gap-2">
-                          <span className="rounded-full bg-fuchsia-500/10 px-3 py-1 text-xs font-bold text-fuchsia-200">
-                            Sala de aula
-                          </span>
+                      <h3 className="mt-3 text-lg font-black text-white">
+                        {template.title}
+                      </h3>
 
-                          <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300">
-                            {getStatusLabel(quiz.status)}
-                          </span>
-
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-bold ${
-                              quiz.result_type === "ranking"
-                                ? "bg-yellow-500/10 text-yellow-200"
-                                : "bg-emerald-500/10 text-emerald-200"
-                            }`}
-                          >
-                            {getResultTypeLabel(quiz.result_type, quiz.mode)}
-                          </span>
-                        </div>
-
-                        <h3 className="mt-3 text-lg font-bold text-white">
-                          {quiz.title}
-                        </h3>
-
-                        <p className="mt-1 text-sm text-slate-400">
-                          {className} • {questions.length} pergunta(s)
+                      {template.description && (
+                        <p className="mt-1 line-clamp-2 text-sm text-slate-400">
+                          {template.description}
                         </p>
-                      </div>
+                      )}
                     </div>
 
-                    <div className="mt-4 rounded-3xl border border-fuchsia-500/20 bg-fuchsia-500/10 p-4">
-                      {quiz.status === "waiting" && (
-                        <div>
-                          <div className="flex items-center gap-2 text-sm font-bold text-fuchsia-100">
-                            <Users size={16} />
-                            Sala aberta para entrada dos alunos
-                          </div>
+                    <div className="rounded-2xl border border-violet-400/20 bg-violet-500/10 px-4 py-3 text-center">
+                      <p className="text-2xl font-black text-white">
+                        {questions.length}
+                      </p>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-violet-200">
+                        questões
+                      </p>
+                    </div>
+                  </div>
 
-                          {participants.length === 0 ? (
-                            <p className="mt-3 text-sm text-slate-400">
-                              Nenhum aluno entrou ainda.
-                            </p>
-                          ) : (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {participants.map((participant) => (
-                                <span
-                                  key={participant.id}
-                                  className="rounded-full border border-fuchsia-400/20 bg-slate-950/60 px-3 py-2 text-xs font-bold text-fuchsia-100"
-                                >
-                                  {participant.emoji || "🚀"}{" "}
-                                  {participant.nickname ||
-                                    participant.student_name}
-                                </span>
-                              ))}
-                            </div>
-                          )}
+                  <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-slate-400">
+                    <span>Criado em {formatDate(template.created_at)}</span>
+                    <span>•</span>
+                    <span>{template.time_per_question ?? 45}s por pergunta</span>
+                    <span>•</span>
+                    <span>Nota máx.: {template.grade_weight ?? 10}</span>
+                  </div>
+
+                  {questions.length > 0 && (
+                    <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Prévia
+                      </p>
+                      <p className="mt-2 line-clamp-2 text-sm font-semibold text-slate-200">
+                        {questions[0].question_text}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                    <button
+                      type="button"
+                      onClick={() => handleUseTemplate(template)}
+                      disabled={loadingThis}
+                      className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-emerald-400 disabled:opacity-50 lg:col-span-2"
+                    >
+                      {loadingThis ? (
+                        <Loader2 className="animate-spin" size={15} />
+                      ) : (
+                        <Copy size={15} />
+                      )}
+                      Usar nesta turma
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleArchiveTemplate(template)}
+                      disabled={loadingThis}
+                      className="flex items-center justify-center gap-2 rounded-xl bg-yellow-500 px-3 py-2 text-sm font-bold text-black transition hover:bg-yellow-400 disabled:opacity-50"
+                    >
+                      <Archive size={15} />
+                      Arquivar
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTemplate(template)}
+                      disabled={loadingThis}
+                      className="flex items-center justify-center gap-2 rounded-xl bg-red-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-red-400 disabled:opacity-50"
+                    >
+                      <Trash2 size={15} />
+                      Excluir
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <QuizListPanel
+          title="Quizzes atividade"
+          description="O aluno responde sozinho, sem condução do professor."
+          icon={<Layers3 size={26} className="text-cyan-300" />}
+          tone="cyan"
+          emptyText="Nenhum quiz atividade encontrado."
+          search={search}
+          setSearch={setSearch}
+        >
+          {filteredAssignmentQuizzes.map((quiz) => {
+            const attempts = attemptsByQuiz[quiz.id] ?? [];
+            const questions = questionsByQuiz[quiz.id] ?? [];
+            const className = getClassNameById(classes, quiz.class_id);
+            const loadingThis = actionLoadingId === quiz.id;
+
+            return (
+              <QuizCard
+                key={quiz.id}
+                quiz={quiz}
+                classNameLabel={className}
+                questionsCount={questions.length}
+                loadingThis={loadingThis}
+                onArchive={() => handleArchiveQuiz(quiz)}
+                onDelete={() => handleDeleteQuiz(quiz)}
+                onSaveTemplate={() => handleSaveExistingQuizAsTemplate(quiz)}
+              >
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <MetricCard label="Responderam" value={attempts.length} />
+                  <MetricCard label="Nota máxima" value={quiz.grade_weight ?? 10} />
+                  <MetricCard label="Modo" value="Autônomo" small />
+                </div>
+
+                {attempts.length > 0 && (
+                  <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                    <p className="text-sm font-bold text-emerald-200">
+                      Últimas notas registradas
+                    </p>
+
+                    <div className="mt-3 space-y-2">
+                      {attempts.slice(0, 5).map((attempt) => {
+                        const studentName =
+                          studentNamesById[attempt.student_id] ??
+                          "Aluno sem nome";
+
+                        return (
+                          <div
+                            key={attempt.id}
+                            className="flex items-center justify-between rounded-xl bg-slate-950/50 px-3 py-2 text-sm"
+                          >
+                            <span className="truncate text-slate-300">
+                              {studentName}
+                            </span>
+                            <strong className="text-emerald-200">
+                              {Number(attempt.score ?? 0).toFixed(1)}
+                            </strong>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </QuizCard>
+            );
+          })}
+        </QuizListPanel>
+
+        <QuizListPanel
+          title="Quizzes sala de aula"
+          description="Professor conduz ao vivo com alunos conectados."
+          icon={<MonitorPlay size={26} className="text-fuchsia-300" />}
+          tone="fuchsia"
+          emptyText="Nenhum quiz sala de aula encontrado."
+          hideSearch
+          search={search}
+          setSearch={setSearch}
+        >
+          {filteredLiveQuizzes.map((quiz) => {
+            const className = getClassNameById(classes, quiz.class_id);
+            const questions = questionsByQuiz[quiz.id] ?? [];
+            const participants = participantsByQuiz[quiz.id] ?? [];
+            const ranking = getRanking(quiz);
+            const loadingThis = actionLoadingId === quiz.id;
+            const currentQuestion = getCurrentQuestion(quiz);
+            const currentAnswers = getCurrentQuestionAnswers(quiz);
+            const answeredStudentCount = new Set(
+              currentAnswers.map((answer) => answer.student_id)
+            ).size;
+            const remainingSeconds = getRemainingSeconds(quiz, now);
+            const timerPercent = getTimerPercent(quiz, now);
+            const totalQuestions = quiz.total_questions ?? questions.length;
+            const currentOrder = quiz.current_question_order ?? 0;
+
+            return (
+              <QuizCard
+                key={quiz.id}
+                quiz={quiz}
+                classNameLabel={className}
+                questionsCount={questions.length}
+                loadingThis={loadingThis}
+                onArchive={() => handleArchiveQuiz(quiz)}
+                onDelete={() => handleDeleteQuiz(quiz)}
+                onSaveTemplate={() => handleSaveExistingQuizAsTemplate(quiz)}
+              >
+                <div className="mt-4 rounded-3xl border border-fuchsia-500/20 bg-fuchsia-500/10 p-4">
+                  {quiz.status === "waiting" && (
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-bold text-fuchsia-100">
+                        <Users size={16} />
+                        Sala aberta para entrada dos alunos
+                      </div>
+
+                      {participants.length === 0 ? (
+                        <p className="mt-3 text-sm text-slate-400">
+                          Nenhum aluno entrou ainda.
+                        </p>
+                      ) : (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {participants.map((participant) => (
+                            <span
+                              key={participant.id}
+                              className="rounded-full border border-fuchsia-400/20 bg-slate-950/60 px-3 py-2 text-xs font-bold text-fuchsia-100"
+                            >
+                              {participant.emoji || "🚀"} {" "}
+                              {participant.nickname || participant.student_name}
+                            </span>
+                          ))}
                         </div>
                       )}
+                    </div>
+                  )}
 
-                      {quiz.status === "live" && (
+                  {quiz.status === "live" && (
+                    <div>
+                      <div className="flex items-center justify-between gap-4">
                         <div>
-                          <div className="flex items-center justify-between gap-4">
-                            <div>
-                              <p className="text-sm text-fuchsia-100">
-                                Pergunta atual:{" "}
-                                <strong>
-                                  {currentOrder}/{totalQuestions}
-                                </strong>
-                              </p>
-
-                              <p className="mt-1 text-xs text-slate-400">
-                                Responderam:{" "}
-                                <strong className="text-white">
-                                  {answeredStudentCount}/{participants.length}
-                                </strong>
-                              </p>
-                            </div>
-
-                            <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-center">
-                              <Clock3 className="mx-auto h-5 w-5 text-yellow-300" />
-
-                              <p className="mt-1 text-xl font-black text-white">
-                                {remainingSeconds}s
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-800">
-                            <div
-                              className={`h-full rounded-full transition-all duration-500 ${
-                                remainingSeconds <= 10
-                                  ? "bg-red-500"
-                                  : "bg-fuchsia-400"
-                              }`}
-                              style={{
-                                width: `${timerPercent}%`,
-                              }}
-                            />
-                          </div>
-
-                          {currentQuestion && (
-                            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-                              <p className="text-xs font-bold uppercase tracking-wide text-fuchsia-200">
-                                Pergunta liberada
-                              </p>
-
-                              <p className="mt-2 text-sm font-semibold text-white">
-                                {currentQuestion.question_text}
-                              </p>
-                            </div>
-                          )}
+                          <p className="text-sm text-fuchsia-100">
+                            Pergunta atual: {" "}
+                            <strong>
+                              {currentOrder}/{totalQuestions}
+                            </strong>
+                          </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            Responderam: {" "}
+                            <strong className="text-white">
+                              {answeredStudentCount}/{participants.length}
+                            </strong>
+                          </p>
                         </div>
-                      )}
 
-                      {quiz.status === "finished" && (
-                        <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4">
-                          <p className="font-bold text-yellow-100">
-                            Quiz finalizado. Ranking disponível para os alunos.
+                        <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-center">
+                          <Clock3 className="mx-auto h-5 w-5 text-yellow-300" />
+                          <p className="mt-1 text-xl font-black text-white">
+                            {remainingSeconds}s
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-800">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            remainingSeconds <= 10 ? "bg-red-500" : "bg-fuchsia-400"
+                          }`}
+                          style={{ width: `${timerPercent}%` }}
+                        />
+                      </div>
+
+                      {currentQuestion && (
+                        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                          <p className="text-xs font-bold uppercase tracking-wide text-fuchsia-200">
+                            Pergunta liberada
+                          </p>
+                          <p className="mt-2 text-sm font-semibold text-white">
+                            {currentQuestion.question_text}
                           </p>
                         </div>
                       )}
-
-                      <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                        {quiz.status === "waiting" && (
-                          <button
-                            type="button"
-                            onClick={() => handleStartLiveQuiz(quiz)}
-                            disabled={loadingThis}
-                            className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 py-3 text-sm font-bold text-white transition hover:bg-emerald-400 disabled:opacity-50"
-                          >
-                            <Play size={15} />
-                            Iniciar quiz
-                          </button>
-                        )}
-
-                        {quiz.status === "live" && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleNextQuestion(quiz)}
-                              disabled={loadingThis}
-                              className="flex items-center justify-center gap-2 rounded-xl bg-fuchsia-500 px-3 py-3 text-sm font-bold text-white transition hover:bg-fuchsia-400 disabled:opacity-50"
-                            >
-                              <ChevronRight size={15} />
-                              {currentOrder >= totalQuestions
-                                ? "Finalizar"
-                                : "Próxima"}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleRestartQuestionTimer(quiz)}
-                              disabled={loadingThis}
-                              className="flex items-center justify-center gap-2 rounded-xl bg-blue-500 px-3 py-3 text-sm font-bold text-white transition hover:bg-blue-400 disabled:opacity-50"
-                            >
-                              <RefreshCw size={15} />
-                              Reiniciar tempo
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleFinishQuiz(quiz)}
-                              disabled={loadingThis}
-                              className="flex items-center justify-center gap-2 rounded-xl bg-yellow-500 px-3 py-3 text-sm font-bold text-black transition hover:bg-yellow-400 disabled:opacity-50 sm:col-span-2"
-                            >
-                              Finalizar quiz agora
-                            </button>
-                          </>
-                        )}
-                      </div>
                     </div>
+                  )}
 
-                    {ranking.length > 0 && (
-                      <div className="mt-4 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4">
-                        <div className="mb-3 flex items-center gap-2 text-sm font-bold text-yellow-200">
-                          <Trophy size={16} />
-                          Ranking parcial
-                        </div>
+                  {quiz.status === "finished" && (
+                    <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4">
+                      <p className="font-bold text-yellow-100">
+                        Quiz finalizado. Ranking disponível para os alunos.
+                      </p>
+                    </div>
+                  )}
 
-                        <div className="space-y-2">
-                          {ranking.slice(0, 5).map((item, index) => (
-                            <div
-                              key={item.student_id}
-                              className="flex items-center justify-between rounded-xl bg-slate-950/50 px-3 py-2 text-sm"
-                            >
-                              <span className="truncate text-white">
-                                {index === 0
-                                  ? "🥇"
-                                  : index === 1
-                                  ? "🥈"
-                                  : index === 2
-                                  ? "🥉"
-                                  : `${index + 1}º`}{" "}
-                                {item.emoji} {item.nickname}
-                              </span>
-
-                              <span className="font-bold text-yellow-200">
-                                {item.points} pts
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    {quiz.status === "waiting" && (
+                      <button
+                        type="button"
+                        onClick={() => handleStartLiveQuiz(quiz)}
+                        disabled={loadingThis}
+                        className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 py-3 text-sm font-bold text-white transition hover:bg-emerald-400 disabled:opacity-50"
+                      >
+                        <Play size={15} />
+                        Iniciar quiz
+                      </button>
                     )}
 
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleArchiveQuiz(quiz)}
-                        disabled={loadingThis || quiz.status === "archived"}
-                        className="flex items-center justify-center gap-2 rounded-xl bg-yellow-500 px-3 py-2 text-sm font-bold text-black transition hover:bg-yellow-400 disabled:opacity-50"
-                      >
-                        <Archive size={15} />
-                        Arquivar
-                      </button>
+                    {quiz.status === "live" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleNextQuestion(quiz)}
+                          disabled={loadingThis}
+                          className="flex items-center justify-center gap-2 rounded-xl bg-fuchsia-500 px-3 py-3 text-sm font-bold text-white transition hover:bg-fuchsia-400 disabled:opacity-50"
+                        >
+                          <ChevronRight size={15} />
+                          {currentOrder >= totalQuestions ? "Finalizar" : "Próxima"}
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteQuiz(quiz)}
-                        disabled={loadingThis}
-                        className="flex items-center justify-center gap-2 rounded-xl bg-red-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-red-400 disabled:opacity-50"
-                      >
-                        <Trash2 size={15} />
-                        Excluir
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRestartQuestionTimer(quiz)}
+                          disabled={loadingThis}
+                          className="flex items-center justify-center gap-2 rounded-xl bg-blue-500 px-3 py-3 text-sm font-bold text-white transition hover:bg-blue-400 disabled:opacity-50"
+                        >
+                          <RefreshCw size={15} />
+                          Reiniciar tempo
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleFinishQuiz(quiz)}
+                          disabled={loadingThis}
+                          className="flex items-center justify-center gap-2 rounded-xl bg-yellow-500 px-3 py-3 text-sm font-bold text-black transition hover:bg-yellow-400 disabled:opacity-50 sm:col-span-2"
+                        >
+                          Finalizar quiz agora
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {ranking.length > 0 && (
+                  <div className="mt-4 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-bold text-yellow-200">
+                      <Trophy size={16} />
+                      Ranking parcial
+                    </div>
+
+                    <div className="space-y-2">
+                      {ranking.slice(0, 5).map((item, index) => (
+                        <div
+                          key={item.student_id}
+                          className="flex items-center justify-between rounded-xl bg-slate-950/50 px-3 py-2 text-sm"
+                        >
+                          <span className="truncate text-white">
+                            {index === 0
+                              ? "🥇"
+                              : index === 1
+                              ? "🥈"
+                              : index === 2
+                              ? "🥉"
+                              : `${index + 1}º`} {" "}
+                            {item.emoji} {item.nickname}
+                          </span>
+                          <span className="font-bold text-yellow-200">
+                            {item.points} pts
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                );
-              })
-            )}
-          </div>
-        </div>
+                )}
+              </QuizCard>
+            );
+          })}
+        </QuizListPanel>
       </section>
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  small,
+}: {
+  label: string;
+  value: string | number;
+  small?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p
+        className={`mt-1 font-black text-white ${
+          small ? "text-sm text-cyan-200" : "text-2xl"
+        }`}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function QuizListPanel({
+  title,
+  description,
+  icon,
+  tone,
+  emptyText,
+  search,
+  setSearch,
+  hideSearch,
+  children,
+}: {
+  title: string;
+  description: string;
+  icon: ReactNode;
+  tone: "cyan" | "fuchsia";
+  emptyText: string;
+  search: string;
+  setSearch: (value: string) => void;
+  hideSearch?: boolean;
+  children: ReactNode;
+}) {
+  const border = tone === "cyan" ? "border-cyan-500/20" : "border-fuchsia-500/20";
+  const background = tone === "cyan" ? "bg-cyan-500/10" : "bg-fuchsia-500/10";
+
+  return (
+    <div className={`rounded-[32px] border ${border} ${background} p-6`}>
+      <div className="flex items-center gap-3">
+        {icon}
+        <div>
+          <h2 className="text-2xl font-black text-white">{title}</h2>
+          <p className="text-sm text-slate-400">{description}</p>
+        </div>
+      </div>
+
+      {!hideSearch && (
+        <div className="mt-5 flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3">
+          <Search size={18} className="text-slate-500" />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Pesquisar quiz..."
+            className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+          />
+        </div>
+      )}
+
+      <div className="mt-5 space-y-4">
+        {Array.isArray(children) && children.length === 0 ? (
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 text-sm text-slate-400">
+            {emptyText}
+          </div>
+        ) : (
+          children
+        )}
+      </div>
+    </div>
+  );
+}
+
+function QuizCard({
+  quiz,
+  classNameLabel,
+  questionsCount,
+  loadingThis,
+  onArchive,
+  onDelete,
+  onSaveTemplate,
+  children,
+}: {
+  quiz: Quiz;
+  classNameLabel: string;
+  questionsCount: number;
+  loadingThis: boolean;
+  onArchive: () => void;
+  onDelete: () => void;
+  onSaveTemplate: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-800 bg-slate-950/50 p-5">
+      <div className="flex items-start gap-3">
+        <div
+          className={`rounded-2xl p-3 ${
+            quiz.mode === "live"
+              ? "bg-fuchsia-500/15 text-fuchsia-300"
+              : "bg-cyan-500/15 text-cyan-300"
+          }`}
+        >
+          <Rocket size={20} />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap gap-2">
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-bold ${
+                quiz.mode === "live"
+                  ? "bg-fuchsia-500/10 text-fuchsia-200"
+                  : "bg-cyan-500/10 text-cyan-200"
+              }`}
+            >
+              {getModeLabel(quiz.mode)}
+            </span>
+            <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300">
+              {getStatusLabel(quiz.status)}
+            </span>
+            <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">
+              {getResultTypeLabel(quiz.result_type, quiz.mode)}
+            </span>
+          </div>
+
+          <h3 className="mt-3 text-lg font-bold text-white">{quiz.title}</h3>
+          <p className="mt-1 text-sm text-slate-400">
+            {classNameLabel} • {questionsCount} pergunta(s)
+          </p>
+        </div>
+      </div>
+
+      {children}
+
+      <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-3">
+        <button
+          type="button"
+          onClick={onSaveTemplate}
+          disabled={loadingThis}
+          className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-violet-400 disabled:opacity-50"
+        >
+          <Database size={15} />
+          Salvar modelo
+        </button>
+
+        <button
+          type="button"
+          onClick={onArchive}
+          disabled={loadingThis || quiz.status === "archived"}
+          className="flex items-center justify-center gap-2 rounded-xl bg-yellow-500 px-3 py-2 text-sm font-bold text-black transition hover:bg-yellow-400 disabled:opacity-50"
+        >
+          <Archive size={15} />
+          Arquivar
+        </button>
+
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={loadingThis}
+          className="flex items-center justify-center gap-2 rounded-xl bg-red-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-red-400 disabled:opacity-50"
+        >
+          <Trash2 size={15} />
+          Excluir
+        </button>
+      </div>
     </div>
   );
 }
