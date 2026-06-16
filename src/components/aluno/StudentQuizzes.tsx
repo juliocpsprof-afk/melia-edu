@@ -943,6 +943,12 @@ export default function StudentQuizzes() {
     }
 
     setCurrentQuestionIndex((current) => current + 1);
+
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById("quiz-question-card")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   const theme = getThemeClasses(selectedQuiz?.theme ?? "neon");
@@ -1041,7 +1047,7 @@ export default function StudentQuizzes() {
                   </div>
                 </div>
 
-                <div className="rounded-[32px] border border-white/10 bg-slate-950/50 p-5 lg:w-[420px]">
+                <div className="rounded-[24px] border border-white/10 bg-slate-950/50 p-4 lg:w-[360px]">
                   <input
                     value={nickname}
                     onChange={(event) => setNickname(event.target.value)}
@@ -1049,13 +1055,13 @@ export default function StudentQuizzes() {
                     className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-fuchsia-400"
                   />
 
-                  <div className="mt-4 grid max-h-44 grid-cols-6 gap-2 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/50 p-3 sm:grid-cols-8">
+                  <div className="mt-3 grid max-h-40 grid-cols-7 gap-1.5 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/50 p-2 sm:grid-cols-8">
                     {emojis.map((emoji) => (
                       <button
                         key={emoji}
                         type="button"
                         onClick={() => setSelectedEmoji(emoji)}
-                        className={`rounded-2xl border p-2 text-2xl transition hover:scale-110 ${
+                        className={`flex aspect-square min-h-10 items-center justify-center rounded-xl border p-1 text-xl transition hover:scale-105 sm:text-2xl ${
                           selectedEmoji === emoji
                             ? "scale-110 border-fuchsia-300 bg-fuchsia-500/25 shadow-lg shadow-fuchsia-500/20"
                             : "border-slate-800 bg-slate-900 hover:border-fuchsia-400/40"
@@ -1315,7 +1321,7 @@ export default function StudentQuizzes() {
           </div>
         ) : currentQuestion ? (
           <div className="grid gap-5">
-            <div className="overflow-hidden rounded-[36px] border border-white/10 bg-slate-900/80 shadow-2xl backdrop-blur">
+            <div id="quiz-question-card" className="scroll-mt-24 overflow-hidden rounded-[28px] border border-white/10 bg-slate-900/80 shadow-2xl backdrop-blur">
               <div className={`h-2 bg-gradient-to-r ${theme.gradient}`}>
                 <div
                   className="h-full bg-white/80 transition-all duration-500"
@@ -1326,7 +1332,7 @@ export default function StudentQuizzes() {
               </div>
 
               {isLiveMode && (
-                <div className="border-b border-white/10 bg-slate-950/50 px-5 py-4 sm:px-7">
+                <div className="border-b border-white/10 bg-slate-950/50 px-4 py-3 sm:px-5">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3">
                       <div
@@ -1372,8 +1378,8 @@ export default function StudentQuizzes() {
                 </div>
               )}
 
-              <div className="p-5 sm:p-7">
-                <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="p-4 sm:p-5">
+                <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span
@@ -1402,12 +1408,12 @@ export default function StudentQuizzes() {
                       )}
                     </div>
 
-                    <h2 className="mt-5 text-3xl font-black leading-tight sm:text-4xl lg:text-5xl">
+                    <h2 className="mt-3 text-xl font-black leading-snug sm:text-2xl lg:text-3xl">
                       {currentQuestion.question_text}
                     </h2>
                   </div>
 
-                  <div className="rounded-3xl border border-white/10 bg-white/5 px-5 py-4 text-center">
+                  <div className="hidden rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center sm:block">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
                       Jogador
                     </p>
@@ -1418,7 +1424,7 @@ export default function StudentQuizzes() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-3">
                   {currentQuestion.options.map((option, index) => {
                     const selected = currentSelectedOptionId === option.id;
                     const visual = optionVisuals[index] ?? optionVisuals[0];
@@ -1435,9 +1441,9 @@ export default function StudentQuizzes() {
                         type="button"
                         onClick={() => handleOptionClick(option.id)}
                         disabled={disabled}
-                        className={`group relative min-h-[138px] overflow-hidden rounded-[32px] border p-5 text-left transition-all duration-300 hover:-translate-y-1 active:scale-[0.98] disabled:cursor-not-allowed ${
+                        className={`group relative min-h-[66px] overflow-hidden rounded-2xl border p-3 text-left transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.99] disabled:cursor-not-allowed sm:min-h-[82px] sm:p-4 ${
                           selected
-                            ? `scale-[1.03] ring-4 ${visual.selected}`
+                            ? `scale-[1.01] ring-2 ${visual.selected}`
                             : `${visual.idle} ${
                                 disabled ? "opacity-60 grayscale" : ""
                               }`
@@ -1446,55 +1452,37 @@ export default function StudentQuizzes() {
                         <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl transition group-hover:bg-white/20" />
 
                         {selected && (
-                          <div className="absolute right-4 top-4 z-20 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-950 shadow-xl">
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                            Selecionada
+                          <div className="absolute right-2 top-2 z-20 inline-flex items-center gap-1 rounded-full bg-white p-1.5 text-[10px] font-black uppercase tracking-wide text-slate-950 shadow-xl sm:right-3 sm:top-3 sm:px-2.5 sm:py-1">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                            <span className="hidden sm:inline">Selecionada</span>
                           </div>
                         )}
 
-                        <div className="relative z-10 flex h-full flex-col justify-between gap-5">
-                          <div className="flex items-start gap-4 pr-24">
-                            <div
-                              className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-2xl font-black shadow-lg ${
-                                selected
-                                  ? "bg-white text-slate-950"
-                                  : `${visual.badge} text-white`
-                              }`}
-                            >
-                              {visual.letter}
-                            </div>
-
-                            <p className="text-xl font-black leading-snug sm:text-2xl">
-                              {option.text}
-                            </p>
+                        <div className="relative z-10 flex h-full items-center gap-3">
+                          <div
+                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-base font-black shadow-lg sm:h-12 sm:w-12 sm:text-lg ${
+                              selected
+                                ? "bg-white text-slate-950"
+                                : `${visual.badge} text-white`
+                            }`}
+                          >
+                            {visual.letter}
                           </div>
 
-                          <div className="flex items-center justify-between">
-                            <span className="text-3xl opacity-80">
-                              {visual.symbol}
-                            </span>
+                          <p className="min-w-0 flex-1 pr-7 text-sm font-black leading-snug sm:pr-20 sm:text-base lg:text-lg">
+                            {option.text}
+                          </p>
 
-                            <span
-                              className={`text-sm font-bold ${
-                                selected ? "opacity-100" : "opacity-60"
-                              }`}
-                            >
-                              {selected
-                                ? isLiveMode
-                                  ? "Resposta enviada"
-                                  : "Essa é sua escolha"
-                                : isLiveMode && disabled
-                                ? "Aguarde a próxima"
-                                : "Toque para escolher"}
-                            </span>
-                          </div>
+                          <span className="hidden shrink-0 text-xl opacity-70 sm:block">
+                            {visual.symbol}
+                          </span>
                         </div>
                       </button>
                     );
                   })}
                 </div>
 
-                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-slate-300">
                     {isLiveMode ? (
                       currentSelectedOptionId ? (
@@ -1523,7 +1511,7 @@ export default function StudentQuizzes() {
                       type="button"
                       onClick={goToNextQuestion}
                       disabled={submitting || !currentSelectedOptionId}
-                      className={`flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r ${theme.gradient} px-7 py-4 text-lg font-black text-white shadow-2xl ${theme.glow} transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:grayscale disabled:opacity-40`}
+                      className={`flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r ${theme.gradient} px-5 py-3 text-base font-black text-white shadow-xl ${theme.glow} transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:grayscale disabled:opacity-40`}
                     >
                       {submitting ? (
                         <Loader2 className="animate-spin" size={20} />

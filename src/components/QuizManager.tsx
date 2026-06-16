@@ -399,6 +399,7 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
   >({});
 
   const [search, setSearch] = useState("");
+  const [quizClassFilter, setQuizClassFilter] = useState("");
   const [templateSearch, setTemplateSearch] = useState("");
   const [templateTargetClassId, setTemplateTargetClassId] = useState("");
   const [creating, setCreating] = useState(false);
@@ -425,30 +426,38 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
   const filteredAssignmentQuizzes = useMemo(() => {
     const normalizedSearch = normalizeText(search);
 
-    if (!normalizedSearch) return assignmentQuizzes;
-
     return assignmentQuizzes.filter((quiz) => {
+      if (quizClassFilter && quiz.class_id !== quizClassFilter) {
+        return false;
+      }
+
+      if (!normalizedSearch) return true;
+
       const className = getClassNameById(classes, quiz.class_id);
 
       return normalizeText(
         `${quiz.title} ${quiz.description ?? ""} ${className} ${quiz.status}`
       ).includes(normalizedSearch);
     });
-  }, [assignmentQuizzes, search, classes]);
+  }, [assignmentQuizzes, search, classes, quizClassFilter]);
 
   const filteredLiveQuizzes = useMemo(() => {
     const normalizedSearch = normalizeText(search);
 
-    if (!normalizedSearch) return liveQuizzes;
-
     return liveQuizzes.filter((quiz) => {
+      if (quizClassFilter && quiz.class_id !== quizClassFilter) {
+        return false;
+      }
+
+      if (!normalizedSearch) return true;
+
       const className = getClassNameById(classes, quiz.class_id);
 
       return normalizeText(
         `${quiz.title} ${quiz.description ?? ""} ${className} ${quiz.status}`
       ).includes(normalizedSearch);
     });
-  }, [liveQuizzes, search, classes]);
+  }, [liveQuizzes, search, classes, quizClassFilter]);
 
   const filteredTemplates = useMemo(() => {
     const normalizedSearch = normalizeText(templateSearch);
@@ -1965,6 +1974,65 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
         </div>
       </section>
 
+      <section className="rounded-[28px] border border-slate-800 bg-slate-900/60 p-4 sm:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="min-w-0 lg:flex-1">
+            <h2 className="text-lg font-black text-white">
+              Localizar quizzes realizados
+            </h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Pesquise por palavra-chave ou selecione uma turma.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:w-[640px]">
+            <select
+              value={quizClassFilter}
+              onChange={(event) => setQuizClassFilter(event.target.value)}
+              className="min-w-0 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-violet-400"
+            >
+              <option value="">Todas as turmas</option>
+              {classes.map((classItem) => (
+                <option key={classItem.id} value={classItem.id}>
+                  {classItem.name}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3">
+              <Search size={18} className="shrink-0 text-slate-500" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Título, turma ou palavra-chave..."
+                className="min-w-0 w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-400">
+          <span className="rounded-full bg-cyan-500/10 px-3 py-1 text-cyan-200">
+            {filteredAssignmentQuizzes.length} atividade(s)
+          </span>
+          <span className="rounded-full bg-fuchsia-500/10 px-3 py-1 text-fuchsia-200">
+            {filteredLiveQuizzes.length} sala(s) de aula
+          </span>
+          {(search || quizClassFilter) && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                setQuizClassFilter("");
+              }}
+              className="rounded-full border border-slate-700 px-3 py-1 text-slate-300 transition hover:bg-slate-800"
+            >
+              Limpar filtros
+            </button>
+          )}
+        </div>
+      </section>
+
       <section className="grid gap-6 xl:grid-cols-2">
         <QuizListPanel
           title="Quizzes atividade"
@@ -1972,6 +2040,7 @@ export function QuizManager({ classes }: { classes: ClassItem[] }) {
           icon={<Layers3 size={26} className="text-cyan-300" />}
           tone="cyan"
           emptyText="Nenhum quiz atividade encontrado."
+          hideSearch
           search={search}
           setSearch={setSearch}
         >
@@ -2342,78 +2411,101 @@ function QuizCard({
   onSaveTemplate: () => void;
   children: ReactNode;
 }) {
+  const shouldStartExpanded =
+    quiz.mode === "live" &&
+    (quiz.status === "waiting" || quiz.status === "live");
+
+  const [expanded, setExpanded] = useState(shouldStartExpanded);
+  const createdDate = formatDate(quiz.created_at);
+
   return (
-    <div className="rounded-3xl border border-slate-800 bg-slate-950/50 p-5">
-      <div className="flex items-start gap-3">
+    <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/50 transition hover:border-slate-700">
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        aria-expanded={expanded}
+        className="flex w-full min-w-0 items-center gap-3 px-3 py-3 text-left sm:px-4"
+      >
         <div
-          className={`rounded-2xl p-3 ${
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
             quiz.mode === "live"
               ? "bg-fuchsia-500/15 text-fuchsia-300"
               : "bg-cyan-500/15 text-cyan-300"
           }`}
         >
-          <Rocket size={20} />
+          <Rocket size={18} />
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap gap-2">
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-bold ${
-                quiz.mode === "live"
-                  ? "bg-fuchsia-500/10 text-fuchsia-200"
-                  : "bg-cyan-500/10 text-cyan-200"
-              }`}
-            >
-              {getModeLabel(quiz.mode)}
-            </span>
-            <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300">
-              {getStatusLabel(quiz.status)}
-            </span>
-            <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">
-              {getResultTypeLabel(quiz.result_type, quiz.mode)}
+          <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <h3 className="truncate text-sm font-black text-white sm:text-base">
+              {quiz.title}
+            </h3>
+
+            <span className="w-fit shrink-0 rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-bold text-slate-300">
+              {classNameLabel}
             </span>
           </div>
 
-          <h3 className="mt-3 text-lg font-bold text-white">{quiz.title}</h3>
-          <p className="mt-1 text-sm text-slate-400">
-            {classNameLabel} • {questionsCount} pergunta(s)
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-500 sm:text-xs">
+            <span
+              className={
+                quiz.mode === "live" ? "text-fuchsia-300" : "text-cyan-300"
+              }
+            >
+              {getModeLabel(quiz.mode)}
+            </span>
+            <span>{getStatusLabel(quiz.status)}</span>
+            <span>{questionsCount} pergunta(s)</span>
+            {createdDate && <span>{createdDate}</span>}
+          </div>
         </div>
-      </div>
 
-      {children}
+        <ChevronRight
+          size={20}
+          className={`shrink-0 text-slate-400 transition-transform ${
+            expanded ? "rotate-90" : ""
+          }`}
+        />
+      </button>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-3">
-        <button
-          type="button"
-          onClick={onSaveTemplate}
-          disabled={loadingThis}
-          className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-violet-400 disabled:opacity-50"
-        >
-          <Database size={15} />
-          Salvar modelo
-        </button>
+      {expanded && (
+        <div className="border-t border-slate-800 px-4 pb-4 sm:px-5">
+          {children}
 
-        <button
-          type="button"
-          onClick={onArchive}
-          disabled={loadingThis || quiz.status === "archived"}
-          className="flex items-center justify-center gap-2 rounded-xl bg-yellow-500 px-3 py-2 text-sm font-bold text-black transition hover:bg-yellow-400 disabled:opacity-50"
-        >
-          <Archive size={15} />
-          Arquivar
-        </button>
+          <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-3">
+            <button
+              type="button"
+              onClick={onSaveTemplate}
+              disabled={loadingThis}
+              className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-violet-400 disabled:opacity-50"
+            >
+              <Database size={15} />
+              Salvar modelo
+            </button>
 
-        <button
-          type="button"
-          onClick={onDelete}
-          disabled={loadingThis}
-          className="flex items-center justify-center gap-2 rounded-xl bg-red-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-red-400 disabled:opacity-50"
-        >
-          <Trash2 size={15} />
-          Excluir
-        </button>
-      </div>
+            <button
+              type="button"
+              onClick={onArchive}
+              disabled={loadingThis || quiz.status === "archived"}
+              className="flex items-center justify-center gap-2 rounded-xl bg-yellow-500 px-3 py-2 text-sm font-bold text-black transition hover:bg-yellow-400 disabled:opacity-50"
+            >
+              <Archive size={15} />
+              Arquivar
+            </button>
+
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={loadingThis}
+              className="flex items-center justify-center gap-2 rounded-xl bg-red-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-red-400 disabled:opacity-50"
+            >
+              <Trash2 size={15} />
+              Excluir
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
