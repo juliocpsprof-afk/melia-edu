@@ -1,5 +1,6 @@
-import { supabase } from "../../../lib/supabase";
+import { ClassWhatsappLinksManager } from "../../../components/ClassWhatsappLinksManager";
 import { ClassesManager } from "../../../components/ClassesManager";
+import { supabase } from "../../../lib/supabase";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -15,6 +16,7 @@ type RawClassItem = {
   description: string | null;
   course_id: string | null;
   status: string | null;
+  whatsapp_group_link: string | null;
   students:
     | {
         id?: string | null;
@@ -33,6 +35,7 @@ type ClassItem = {
   description: string | null;
   course_id: string | null;
   status: string | null;
+  whatsapp_group_link: string | null;
   linked_courses: Course[];
   students: {
     id: string;
@@ -75,6 +78,7 @@ export default async function TurmasPage() {
       description,
       course_id,
       status,
+      whatsapp_group_link,
       students (
         id
       )
@@ -175,6 +179,7 @@ export default async function TurmasPage() {
         description: classItem.description,
         course_id: classItem.course_id,
         status: classItem.status ?? "Ativa",
+        whatsapp_group_link: classItem.whatsapp_group_link,
         linked_courses: linkedCourses,
         students:
           classItem.students?.map((student) => ({
@@ -201,6 +206,15 @@ export default async function TurmasPage() {
         <ClassesManager
           classes={safeClasses}
           courses={safeCourses}
+        />
+
+        <ClassWhatsappLinksManager
+          classes={safeClasses.map((classItem) => ({
+            id: classItem.id,
+            name: classItem.name,
+            status: classItem.status,
+            whatsapp_group_link: classItem.whatsapp_group_link,
+          }))}
         />
       </section>
     </>

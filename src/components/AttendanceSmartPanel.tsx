@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Cake,
@@ -8,10 +8,15 @@ import {
   CheckCircle2,
   ChevronDown,
   Clipboard,
+  Copy,
   Edit3,
+  Eye,
+  Loader2,
+  MessageCircle,
   PartyPopper,
   Save,
   Search,
+  Trash2,
   XCircle,
 } from "lucide-react";
 
@@ -20,6 +25,7 @@ import { supabase } from "../lib/supabase";
 type ClassItem = {
   id: string;
   name: string;
+  whatsapp_group_link: string | null;
 };
 
 type Lesson = {
@@ -63,6 +69,34 @@ type Message = {
 
 type AttendanceRow = {
   status: string | null;
+};
+
+type AttendanceHistoryRow = {
+  id: string;
+  student_id: string;
+  class_id: string;
+  lesson_id: string | null;
+  date: string;
+  status: string | null;
+  arrival_time: string | null;
+  notes: string | null;
+  created_at?: string | null;
+};
+
+type AttendanceHistoryGroup = {
+  key: string;
+  classId: string;
+  className: string;
+  lessonId: string | null;
+  date: string;
+  timeLabel: string;
+  createdAt: string | null;
+  lesson: DiaryLesson | null;
+  rows: AttendanceHistoryRow[];
+  total: number;
+  presentCount: number;
+  delayedCount: number;
+  absentCount: number;
 };
 
 type LessonMode = "planned" | "manual" | "diary";
@@ -148,12 +182,107 @@ function formatDateToBrazilian(date: string) {
   return new Date(`${date}T00:00:00`).toLocaleDateString("pt-BR");
 }
 
+function formatTimeFromDateTime(value: string | null | undefined) {
+  if (!value) {
+    return "";
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "";
+  }
+
+  return parsedDate.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function normalizeAttendanceStatus(
+  value: string | null | undefined
+): AttendanceStatus {
+  if (value === "Falta" || value === "Atraso") {
+    return value;
+  }
+
+  return "Presente";
+}
+
+function getHistoryGroupTimeLabel(
+  createdAt: string | null,
+  rows: AttendanceHistoryRow[]
+) {
+  const createdAtTime = formatTimeFromDateTime(createdAt);
+
+  if (createdAtTime) {
+    return createdAtTime;
+  }
+
+  const delayedTime = rows.find((row) => row.arrival_time)?.arrival_time;
+
+  if (delayedTime) {
+    return delayedTime;
+  }
+
+  return "--:--";
+}
+
 function getErrorMessage(error: unknown) {
   if (error && typeof error === "object" && "message" in error) {
     return String((error as { message?: unknown }).message);
   }
 
   return "Não foi possível concluir a operação.";
+}
+
+function getValidWhatsappLink(value: string | null | undefined) {
+  const cleanValue = String(value ?? "").trim();
+
+  if (!cleanValue) {
+    return "";
+  }
+
+  try {
+    const url = new URL(cleanValue);
+
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return "";
+    }
+
+    const hostname = url.hostname.toLowerCase();
+
+    if (
+      hostname === "wa.me" ||
+      hostname.endsWith(".wa.me") ||
+      hostname === "whatsapp.com" ||
+      hostname.endsWith(".whatsapp.com")
+    ) {
+      return url.toString();
+    }
+
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+async function copyTextToClipboard(value: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
 
 function normalizeText(value: string) {
@@ -332,6 +461,18 @@ export function AttendanceSmartPanel({
   const [records, setRecords] = useState<Record<string, AttendanceRecord>>({});
   const [birthdayMessages, setBirthdayMessages] = useState<BirthdayMessage[]>([]);
 
+  const [attendanceHistory, setAttendanceHistory] = useState<
+    AttendanceHistoryRow[]
+  >([]);
+  const [loadingAttendanceHistory, setLoadingAttendanceHistory] =
+    useState(false);
+  const [expandedHistoryKey, setExpandedHistoryKey] = useState<string | null>(
+    null
+  );
+  const [deletingHistoryKey, setDeletingHistoryKey] = useState<string | null>(
+    null
+  );
+
   const selectedClass = classes.find((item) => item.id === selectedClassId);
 
   const selectedLesson = lessons.find(
@@ -343,6 +484,77 @@ export function AttendanceSmartPanel({
     (lesson) =>
       lesson.id === selectedDiaryLessonId && lesson.class_id === selectedClassId
   );
+
+  const loadAttendanceHistory = useCallback(async () => {
+    setExpandedHistoryKey(null);
+
+    if (!selectedClassId) {
+      setAttendanceHistory([]);
+      setLoadingAttendanceHistory(false);
+      return;
+    }
+
+    setLoadingAttendanceHistory(true);
+
+    const selectWithCreatedAt = `
+      id,
+      student_id,
+      class_id,
+      lesson_id,
+      date,
+      status,
+      arrival_time,
+      notes,
+      created_at
+    `;
+
+    const selectWithoutCreatedAt = `
+      id,
+      student_id,
+      class_id,
+      lesson_id,
+      date,
+      status,
+      arrival_time,
+      notes
+    `;
+
+    const resultWithCreatedAt = await supabase
+      .from("attendance")
+      .select(selectWithCreatedAt)
+      .eq("class_id", selectedClassId)
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (resultWithCreatedAt.error) {
+      const resultWithoutCreatedAt = await supabase
+        .from("attendance")
+        .select(selectWithoutCreatedAt)
+        .eq("class_id", selectedClassId)
+        .order("date", { ascending: false });
+
+      if (resultWithoutCreatedAt.error) {
+        setAttendanceHistory([]);
+        setLoadingAttendanceHistory(false);
+        setMessage({
+          type: "error",
+          text: `Erro ao carregar histórico de frequência: ${resultWithoutCreatedAt.error.message}`,
+        });
+        return;
+      }
+
+      setAttendanceHistory(
+        (resultWithoutCreatedAt.data as AttendanceHistoryRow[] | null) ?? []
+      );
+      setLoadingAttendanceHistory(false);
+      return;
+    }
+
+    setAttendanceHistory(
+      (resultWithCreatedAt.data as AttendanceHistoryRow[] | null) ?? []
+    );
+    setLoadingAttendanceHistory(false);
+  }, [selectedClassId]);
 
   useEffect(() => {
     let ignore = false;
@@ -428,6 +640,10 @@ export function AttendanceSmartPanel({
     };
   }, [selectedClassId]);
 
+  useEffect(() => {
+    loadAttendanceHistory();
+  }, [loadAttendanceHistory]);
+
   const classLessons = useMemo(() => {
     return lessons
       .filter((lesson) => lesson.class_id === selectedClassId)
@@ -482,6 +698,104 @@ export function AttendanceSmartPanel({
   const classStudents = useMemo(() => {
     return students.filter((student) => student.class_id === selectedClassId);
   }, [students, selectedClassId]);
+
+  const classById = useMemo(() => {
+    return new Map(classes.map((classItem) => [classItem.id, classItem]));
+  }, [classes]);
+
+  const studentById = useMemo(() => {
+    return new Map(students.map((student) => [student.id, student]));
+  }, [students]);
+
+  const diaryLessonById = useMemo(() => {
+    return new Map(diaryLessons.map((lesson) => [lesson.id, lesson]));
+  }, [diaryLessons]);
+
+  const attendanceHistoryGroups = useMemo(() => {
+    const grouped = new Map<
+      string,
+      Omit<
+        AttendanceHistoryGroup,
+        "timeLabel" | "total" | "presentCount" | "delayedCount" | "absentCount"
+      >
+    >();
+
+    attendanceHistory.forEach((row) => {
+      const lessonId = row.lesson_id || null;
+      const key = `${row.class_id}-${lessonId || "sem-aula"}-${row.date}`;
+      const existingGroup = grouped.get(key);
+
+      if (!existingGroup) {
+        grouped.set(key, {
+          key,
+          classId: row.class_id,
+          className: classById.get(row.class_id)?.name || "Turma",
+          lessonId,
+          date: row.date,
+          createdAt: row.created_at ?? null,
+          lesson: lessonId ? diaryLessonById.get(lessonId) ?? null : null,
+          rows: [row],
+        });
+
+        return;
+      }
+
+      existingGroup.rows.push(row);
+
+      if (
+        row.created_at &&
+        (!existingGroup.createdAt ||
+          new Date(row.created_at).getTime() >
+            new Date(existingGroup.createdAt).getTime())
+      ) {
+        existingGroup.createdAt = row.created_at;
+      }
+
+      if (!existingGroup.lesson && lessonId) {
+        existingGroup.lesson = diaryLessonById.get(lessonId) ?? null;
+      }
+    });
+
+    return Array.from(grouped.values())
+      .map((group) => {
+        const presentCount = group.rows.filter(
+          (row) => normalizeAttendanceStatus(row.status) === "Presente"
+        ).length;
+
+        const delayedCount = group.rows.filter(
+          (row) => normalizeAttendanceStatus(row.status) === "Atraso"
+        ).length;
+
+        const absentCount = group.rows.filter(
+          (row) => normalizeAttendanceStatus(row.status) === "Falta"
+        ).length;
+
+        return {
+          ...group,
+          timeLabel: getHistoryGroupTimeLabel(group.createdAt, group.rows),
+          total: group.rows.length,
+          presentCount,
+          delayedCount,
+          absentCount,
+        };
+      })
+      .sort((firstGroup, secondGroup) => {
+        const firstTime =
+          firstGroup.timeLabel && firstGroup.timeLabel !== "--:--"
+            ? firstGroup.timeLabel
+            : "00:00";
+        const secondTime =
+          secondGroup.timeLabel && secondGroup.timeLabel !== "--:--"
+            ? secondGroup.timeLabel
+            : "00:00";
+        const firstDate = new Date(`${firstGroup.date}T${firstTime}`).getTime();
+        const secondDate = new Date(
+          `${secondGroup.date}T${secondTime}`
+        ).getTime();
+
+        return secondDate - firstDate;
+      });
+  }, [attendanceHistory, classById, diaryLessonById]);
 
   const birthdayStudents = useMemo(() => {
     if (!selectedClassId || !attendanceDate) {
@@ -814,6 +1128,8 @@ export function AttendanceSmartPanel({
         classStudents.map((student) => student.id)
       );
 
+      await loadAttendanceHistory();
+
       setMessage({
         type: "success",
         text: `Chamada salva com sucesso! ${data.length} registro(s) gravado(s) e frequência dos alunos atualizada.`,
@@ -970,12 +1286,213 @@ _${motivationalMessage}_`;
       return;
     }
 
-    await navigator.clipboard.writeText(reportText);
+    await copyTextToClipboard(reportText);
 
     setMessage({
       type: "success",
       text: "Relatório copiado com layout melhorado para WhatsApp!",
     });
+  }
+
+  async function copyReportAndOpenClassWhatsapp() {
+    setMessage(null);
+
+    if (!reportText) {
+      setMessage({
+        type: "error",
+        text: "Selecione a turma e informe a aula antes de abrir o grupo.",
+      });
+      return;
+    }
+
+    const groupLink = getValidWhatsappLink(
+      selectedClass?.whatsapp_group_link
+    );
+
+    if (!groupLink) {
+      setMessage({
+        type: "error",
+        text: "Esta turma ainda não possui link de grupo cadastrado. Acesse Turmas e salve o link do WhatsApp.",
+      });
+      return;
+    }
+
+    window.open(
+      groupLink,
+      "_blank",
+      "noopener,noreferrer"
+    );
+
+    await copyTextToClipboard(reportText);
+
+    setMessage({
+      type: "success",
+      text: "Relatório copiado e grupo aberto. Cole a mensagem no grupo.",
+    });
+  }
+
+  function buildAttendanceHistoryReport(group: AttendanceHistoryGroup) {
+    const date = formatDateToBrazilian(group.date);
+    const lessonContent =
+      group.lesson?.content?.trim() || "Conteúdo não informado";
+    const lessonNotes = group.lesson?.notes?.trim();
+
+    function buildRows(status: AttendanceStatus) {
+      const filteredRows = group.rows.filter(
+        (row) => normalizeAttendanceStatus(row.status) === status
+      );
+
+      if (filteredRows.length === 0) {
+        return "• Nenhum registro";
+      }
+
+      return filteredRows
+        .map((row) => {
+          const studentName =
+            studentById.get(row.student_id)?.name || "Aluno não encontrado";
+          const shortName = getShortStudentName(studentName);
+          const arrivalTime =
+            status === "Atraso" && row.arrival_time
+              ? ` (${row.arrival_time})`
+              : "";
+          const note = row.notes?.trim() ? `\n   _Obs.: ${row.notes.trim()}_` : "";
+
+          return `• ${shortName}${arrivalTime}${note}`;
+        })
+        .join("\n");
+    }
+
+    return `📌 *HISTÓRICO DE FREQUÊNCIA*
+
+🏫 *Turma:* ${group.className}
+📅 *Data:* ${date}
+🕒 *Horário:* ${group.timeLabel}
+
+📝 *Conteúdo:* ${lessonContent}${
+      lessonNotes ? `\n🗒️ *Observações da aula:* ${lessonNotes}` : ""
+    }
+
+━━━━━━━━━━━━━━
+
+✅ *Presentes (${group.presentCount})*
+${buildRows("Presente")}
+
+⚠️ *Atrasos (${group.delayedCount})*
+${buildRows("Atraso")}
+
+❌ *Faltas (${group.absentCount})*
+${buildRows("Falta")}
+
+━━━━━━━━━━━━━━
+
+📊 *Resumo*
+Total de alunos: ${group.total}
+Presentes: ${group.presentCount}
+Atrasos: ${group.delayedCount}
+Faltas: ${group.absentCount}`;
+  }
+
+  async function copyAttendanceHistoryGroup(group: AttendanceHistoryGroup) {
+    setMessage(null);
+
+    await navigator.clipboard.writeText(buildAttendanceHistoryReport(group));
+
+    setMessage({
+      type: "success",
+      text: "Histórico de frequência copiado.",
+    });
+  }
+
+  function editAttendanceHistoryGroup(group: AttendanceHistoryGroup) {
+    const updatedRecords = group.rows.reduce<Record<string, AttendanceRecord>>(
+      (recordsByStudent, row) => {
+        recordsByStudent[row.student_id] = {
+          status: normalizeAttendanceStatus(row.status),
+          arrival_time: row.arrival_time || "",
+          notes: row.notes || "",
+        };
+
+        return recordsByStudent;
+      },
+      {}
+    );
+
+    setSelectedClassId(group.classId);
+    setAttendanceDate(group.date);
+    setRecords(updatedRecords);
+    setManualLessonTitle("");
+    setManualLessonContent("");
+    setSelectedLessonId("");
+    setLessonMenuOpen(false);
+    setDiaryLessonMenuOpen(false);
+    setLessonSearch("");
+    setDiaryLessonSearch("");
+    setExpandedHistoryKey(group.key);
+
+    if (group.lessonId) {
+      setLessonMode("diary");
+      setSelectedDiaryLessonId(group.lessonId);
+    } else {
+      setLessonMode("manual");
+      setSelectedDiaryLessonId("");
+      setManualLessonTitle("Aula recuperada do histórico");
+      setManualLessonContent(group.lesson?.content || "");
+    }
+
+    setMessage({
+      type: "success",
+      text: "Frequência carregada para edição. Ajuste o que precisar e clique em Salvar chamada.",
+    });
+  }
+
+  async function deleteAttendanceHistoryGroup(group: AttendanceHistoryGroup) {
+    const confirmed = window.confirm(
+      `Excluir a frequência da turma ${group.className} em ${formatDateToBrazilian(
+        group.date
+      )}?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingHistoryKey(group.key);
+    setMessage(null);
+
+    try {
+      let deleteQuery = supabase
+        .from("attendance")
+        .delete()
+        .eq("class_id", group.classId)
+        .eq("date", group.date);
+
+      deleteQuery = group.lessonId
+        ? deleteQuery.eq("lesson_id", group.lessonId)
+        : deleteQuery.is("lesson_id", null);
+
+      const { error } = await deleteQuery;
+
+      if (error) {
+        throw error;
+      }
+
+      await recalculateStudentAttendance(
+        group.rows.map((row) => row.student_id)
+      );
+      await loadAttendanceHistory();
+
+      setMessage({
+        type: "success",
+        text: "Frequência excluída do histórico.",
+      });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: `Erro ao excluir frequência: ${getErrorMessage(error)}`,
+      });
+    } finally {
+      setDeletingHistoryKey(null);
+    }
   }
 
   function handleSelectLesson(lesson: Lesson) {
@@ -1042,6 +1559,7 @@ _${motivationalMessage}_`;
               setLessonSearch("");
               setDiaryLessonSearch("");
               setRecords({});
+              setExpandedHistoryKey(null);
               setMessage(null);
             }}
             className="min-w-0 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
@@ -1603,7 +2121,285 @@ _${motivationalMessage}_`;
             <Clipboard size={18} />
             Copiar relatório
           </button>
+
+          <button
+            onClick={copyReportAndOpenClassWhatsapp}
+            disabled={!selectedClass?.whatsapp_group_link}
+            className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <MessageCircle size={18} />
+            Copiar e abrir grupo
+          </button>
         </div>
+
+        {selectedClassId && !selectedClass?.whatsapp_group_link && (
+          <p className="mt-3 text-xs text-yellow-200">
+            Esta turma ainda não possui link de grupo. Cadastre em Dashboard → Turmas.
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Histórico de frequência</h2>
+
+            <p className="mt-1 text-sm text-slate-400">
+              A lista abaixo mostra apenas as frequências da turma selecionada.
+            </p>
+          </div>
+        </div>
+
+        {!selectedClassId ? (
+          <p className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-500">
+            Selecione uma turma para visualizar o histórico de frequência.
+          </p>
+        ) : loadingAttendanceHistory ? (
+          <div className="mt-5 flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-400">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Carregando histórico da turma selecionada...
+          </div>
+        ) : attendanceHistoryGroups.length === 0 ? (
+          <p className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-500">
+            Nenhuma frequência registrada para esta turma.
+          </p>
+        ) : (
+          <div className="mt-5 space-y-3">
+            {attendanceHistoryGroups.map((group) => {
+              const isExpanded = expandedHistoryKey === group.key;
+              const presentRows = group.rows.filter(
+                (row) => normalizeAttendanceStatus(row.status) === "Presente"
+              );
+              const delayedRows = group.rows.filter(
+                (row) => normalizeAttendanceStatus(row.status) === "Atraso"
+              );
+              const absentRows = group.rows.filter(
+                (row) => normalizeAttendanceStatus(row.status) === "Falta"
+              );
+              const isDeleting = deletingHistoryKey === group.key;
+
+              function renderHistoryStudentRow(row: AttendanceHistoryRow) {
+                const status = normalizeAttendanceStatus(row.status);
+                const studentName =
+                  studentById.get(row.student_id)?.name ||
+                  "Aluno não encontrado";
+                const shortName = getShortStudentName(studentName);
+
+                return (
+                  <li
+                    key={row.id}
+                    className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold text-slate-100">
+                        {shortName}
+                      </span>
+
+                      <span
+                        className={`rounded-full px-2 py-1 text-[11px] font-bold ${
+                          status === "Presente"
+                            ? "bg-emerald-500/15 text-emerald-300"
+                            : status === "Atraso"
+                            ? "bg-yellow-500/15 text-yellow-300"
+                            : "bg-red-500/15 text-red-300"
+                        }`}
+                      >
+                        {status}
+                        {status === "Atraso" && row.arrival_time
+                          ? ` • ${row.arrival_time}`
+                          : ""}
+                      </span>
+                    </div>
+
+                    {row.notes && (
+                      <p className="mt-1 text-xs leading-5 text-slate-400">
+                        Observação: {row.notes}
+                      </p>
+                    )}
+                  </li>
+                );
+              }
+
+              return (
+                <div
+                  key={group.key}
+                  className={`overflow-hidden rounded-2xl border transition ${
+                    isExpanded
+                      ? "border-violet-500/40 bg-violet-500/5"
+                      : "border-slate-800 bg-slate-950/40"
+                  }`}
+                >
+                  <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedHistoryKey(isExpanded ? null : group.key)
+                      }
+                      className="grid flex-1 gap-2 rounded-xl px-2 py-2 text-left transition hover:bg-slate-900 sm:grid-cols-[minmax(0,1fr)_120px_80px] sm:items-center"
+                    >
+                      <span className="min-w-0 truncate font-bold text-white">
+                        {group.className}
+                      </span>
+
+                      <span className="text-sm font-semibold text-slate-300">
+                        {formatDateToBrazilian(group.date)}
+                      </span>
+
+                      <span className="text-sm font-semibold text-slate-300">
+                        {group.timeLabel}
+                      </span>
+                    </button>
+
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <HistoryIconButton
+                        label="Detalhes"
+                        icon={<Eye className="h-4 w-4" />}
+                        onClick={() =>
+                          setExpandedHistoryKey(isExpanded ? null : group.key)
+                        }
+                      />
+
+                      <HistoryIconButton
+                        label="Copiar"
+                        icon={<Copy className="h-4 w-4" />}
+                        onClick={() => copyAttendanceHistoryGroup(group)}
+                      />
+
+                      <HistoryIconButton
+                        label="Editar"
+                        icon={<Edit3 className="h-4 w-4" />}
+                        onClick={() => editAttendanceHistoryGroup(group)}
+                      />
+
+                      <HistoryIconButton
+                        label="Excluir"
+                        variant="danger"
+                        disabled={isDeleting}
+                        icon={
+                          isDeleting ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )
+                        }
+                        onClick={() => deleteAttendanceHistoryGroup(group)}
+                      />
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="border-t border-slate-800 px-4 pb-4 pt-3">
+                      <div className="grid gap-3 sm:grid-cols-4">
+                        <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                            Total
+                          </p>
+                          <p className="mt-1 text-xl font-black text-white">
+                            {group.total}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-300">
+                            Presentes
+                          </p>
+                          <p className="mt-1 text-xl font-black text-emerald-200">
+                            {group.presentCount}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-3">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-yellow-300">
+                            Atrasos
+                          </p>
+                          <p className="mt-1 text-xl font-black text-yellow-200">
+                            {group.delayedCount}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-3">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-red-300">
+                            Faltas
+                          </p>
+                          <p className="mt-1 text-xl font-black text-red-200">
+                            {group.absentCount}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                          Informações da aula
+                        </p>
+
+                        <p className="mt-2 leading-7 text-slate-200">
+                          {group.lesson?.content?.trim() ||
+                            "Conteúdo não encontrado no diário."}
+                        </p>
+
+                        {group.lesson?.notes && (
+                          <p className="mt-2 text-sm leading-6 text-slate-400">
+                            Observações da aula: {group.lesson.notes}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+                        <div>
+                          <h3 className="mb-2 text-sm font-bold text-emerald-300">
+                            Presentes
+                          </h3>
+
+                          <ul className="space-y-2">
+                            {presentRows.length > 0 ? (
+                              presentRows.map(renderHistoryStudentRow)
+                            ) : (
+                              <li className="text-sm text-slate-500">
+                                Nenhum presente registrado.
+                              </li>
+                            )}
+                          </ul>
+                        </div>
+
+                        <div>
+                          <h3 className="mb-2 text-sm font-bold text-yellow-300">
+                            Atrasos
+                          </h3>
+
+                          <ul className="space-y-2">
+                            {delayedRows.length > 0 ? (
+                              delayedRows.map(renderHistoryStudentRow)
+                            ) : (
+                              <li className="text-sm text-slate-500">
+                                Nenhum atraso registrado.
+                              </li>
+                            )}
+                          </ul>
+                        </div>
+
+                        <div>
+                          <h3 className="mb-2 text-sm font-bold text-red-300">
+                            Faltas
+                          </h3>
+
+                          <ul className="space-y-2">
+                            {absentRows.length > 0 ? (
+                              absentRows.map(renderHistoryStudentRow)
+                            ) : (
+                              <li className="text-sm text-slate-500">
+                                Nenhuma falta registrada.
+                              </li>
+                            )}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1638,6 +2434,38 @@ function StatusButton({
     >
       {icon}
       {label}
+    </button>
+  );
+}
+
+function HistoryIconButton({
+  label,
+  icon,
+  variant = "default",
+  disabled = false,
+  onClick,
+}: {
+  label: string;
+  icon: ReactNode;
+  variant?: "default" | "danger";
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  const styles =
+    variant === "danger"
+      ? "border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+      : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800";
+
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex h-9 w-9 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-50 ${styles}`}
+    >
+      {icon}
     </button>
   );
 }

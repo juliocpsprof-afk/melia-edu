@@ -1,5 +1,5 @@
-import { supabase } from "../../../lib/supabase";
 import { AttendanceSmartPanel } from "../../../components/AttendanceSmartPanel";
+import { supabase } from "../../../lib/supabase";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,6 +13,7 @@ type RawClassItem = {
   id: string;
   name: string | null;
   course_id: string | null;
+  whatsapp_group_link: string | null;
 };
 
 type RawClassCourse = {
@@ -32,6 +33,7 @@ type RawCurriculumLesson = {
 type ClassItem = {
   id: string;
   name: string;
+  whatsapp_group_link: string | null;
 };
 
 type Lesson = {
@@ -63,7 +65,7 @@ function addCourseIdWithoutDuplicate(currentIds: string[], courseId: string) {
 export default async function FrequenciaPage() {
   const { data: classes, error: classesError } = await supabase
     .from("classes")
-    .select("id, name, course_id")
+    .select("id, name, course_id, whatsapp_group_link")
     .order("name", { ascending: true });
 
   const { data: courses, error: coursesError } = await supabase
@@ -117,6 +119,7 @@ export default async function FrequenciaPage() {
   const safeClasses: ClassItem[] = rawClasses.map((classItem) => ({
     id: String(classItem.id),
     name: String(classItem.name ?? "Turma sem nome"),
+    whatsapp_group_link: classItem.whatsapp_group_link,
   }));
 
   const courseIdsByClassId = new Map<string, string[]>();
