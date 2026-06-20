@@ -1,5 +1,5 @@
 -- Fotos de identificação dos alunos
--- Execute este arquivo uma vez no SQL Editor do Supabase.
+-- Execute este arquivo no SQL Editor do Supabase.
 
 alter table public.students
   add column if not exists photo_path text,
@@ -10,7 +10,14 @@ alter table public.students
   add column if not exists photo_rejection_reason text,
   add column if not exists identity_mode text not null default 'avatar',
   add column if not exists avatar_key text not null default '🚀',
-  add column if not exists photo_required boolean not null default true;
+  add column if not exists photo_required boolean not null default false;
+
+alter table public.students
+  alter column photo_required set default false;
+
+update public.students
+set photo_required = false
+where photo_required is distinct from false;
 
 alter table public.students
   drop constraint if exists students_photo_status_check;
