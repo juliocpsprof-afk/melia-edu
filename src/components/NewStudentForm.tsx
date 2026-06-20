@@ -1,7 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle, XCircle } from "lucide-react";
+import {
+  Camera,
+  CheckCircle,
+  ImagePlus,
+  Loader2,
+  Upload,
+  XCircle,
+} from "lucide-react";
+
+import { uploadStudentPhoto } from "../lib/studentPhoto";
 import { supabase } from "../lib/supabase";
 
 type ClassItem = {
@@ -33,6 +42,9 @@ export function NewStudentForm({
   const [attendance, setAttendance] = useState("");
 
   const [status, setStatus] = useState("Regular");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState("");
+  const [photoConfirmed, setPhotoConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [message, setMessage] = useState<{
@@ -40,15 +52,43 @@ export function NewStudentForm({
     text: string;
   } | null>(null);
 
+  function handlePhotoSelection(file: File | null) {
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setMessage({
+        type: "error",
+        text: "Selecione uma imagem válida para a foto do aluno.",
+      });
+      return;
+    }
+
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview);
+    }
+
+    setPhotoFile(file);
+    setPhotoConfirmed(false);
+    setPhotoPreview(URL.createObjectURL(file));
+    setMessage(null);
+  }
+
   async function handleCreateStudent() {
     setMessage(null);
 
     if (!name.trim()) {
       setMessage({
         type: "error",
-        text: "Digite pelo menos o nome do aluno. As outras informações podem ser preenchidas depois.",
+        text: "Digite pelo menos o nome do aluno. A foto poderá ser enviada agora ou no primeiro acesso.",
       });
+      return;
+    }
 
+    if (photoFile && !photoConfirmed) {
+      setMessage({
+        type: "error",
+        text: "Confirme que a foto mostra o aluno de frente e com o rosto legível.",
+      });
       return;
     }
 
@@ -57,40 +97,67 @@ export function NewStudentForm({
 
     setLoading(true);
 
-    const { error } = await supabase.from("students").insert({
-      name: name.trim(),
-      birth_date: birthDate || null,
-      email: email.trim() || null,
-      phone: phone.trim() || null,
+    const { data: createdStudent, error } = await supabase
+      .from("students")
+      .insert({
+        name: name.trim(),
+        birth_date: birthDate || null,
+        email: email.trim() || null,
+        phone: phone.trim() || null,
 
-      class_id: selectedClass?.id || null,
-      class_name: selectedClass?.name || null,
+        class_id: selectedClass?.id || null,
+        class_name: selectedClass?.name || null,
 
-      course_id: selectedCourse?.id || null,
-      course_name: selectedCourse?.name || null,
+        course_id: selectedCourse?.id || null,
+        course_name: selectedCourse?.name || null,
 
-      average: average ? Number(average) : 0,
-      attendance: attendance ? Number(attendance) : 0,
+        average: average ? Number(average) : 0,
+        attendance: attendance ? Number(attendance) : 0,
 
-      status: status || "Regular",
-    });
+        status: status || "Regular",
+      })
+      .select("id, name")
+      .single();
 
-    setLoading(false);
-
-    if (error) {
+    if (error || !createdStudent?.id) {
+      setLoading(false);
       console.error(error);
 
       setMessage({
         type: "error",
-        text: `Erro ao cadastrar aluno: ${error.message}`,
+        text: `Erro ao cadastrar aluno: ${
+          error?.message || "registro não retornado"
+        }`,
       });
-
       return;
     }
 
+    let photoWarning = "";
+
+    if (photoFile) {
+      try {
+        await uploadStudentPhoto({
+          studentId: String(createdStudent.id),
+          file: photoFile,
+          viewer: "teacher",
+        });
+      } catch (photoError) {
+        photoWarning =
+          photoError instanceof Error
+            ? ` O aluno foi criado, mas a foto não foi enviada: ${photoError.message}`
+            : " O aluno foi criado, mas a foto não foi enviada.";
+      }
+    }
+
+    setLoading(false);
+
     setMessage({
-      type: "success",
-      text: "Aluno cadastrado com sucesso!",
+      type: photoWarning ? "error" : "success",
+      text: photoWarning
+        ? `Aluno cadastrado.${photoWarning}`
+        : photoFile
+        ? "Aluno cadastrado com foto aprovada!"
+        : "Aluno cadastrado. A foto será exigida no primeiro acesso ao portal.",
     });
 
     setName("");
@@ -102,37 +169,114 @@ export function NewStudentForm({
     setAverage("");
     setAttendance("");
     setStatus("Regular");
+    setPhotoFile(null);
+    setPhotoConfirmed(false);
+
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview);
+      setPhotoPreview("");
+    }
 
     setTimeout(() => {
       window.location.reload();
-    }, 800);
+    }, 1000);
   }
 
   return (
     <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6">
       <h2 className="text-2xl font-bold">Cadastrar novo aluno</h2>
 
-      <p className="mt-1 text-sm text-slate-400">
-        Apenas o nome é obrigatório. Os demais dados podem ser concluídos depois.
+      <p className="mt-1 text-sm leading-6 text-slate-400">
+        O cadastro pode ser criado imediatamente. A foto de identificação é
+        obrigatória e poderá ser enviada pelo professor agora ou pelo aluno no
+        primeiro acesso.
       </p>
 
       {message && (
         <div
-          className={`mt-5 flex items-center gap-3 rounded-2xl border px-4 py-3 ${
+          className={`mt-5 flex items-start gap-3 rounded-2xl border px-4 py-3 ${
             message.type === "success"
               ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
               : "border-red-500/30 bg-red-500/10 text-red-300"
           }`}
         >
           {message.type === "success" ? (
-            <CheckCircle size={20} />
+            <CheckCircle size={20} className="mt-0.5 shrink-0" />
           ) : (
-            <XCircle size={20} />
+            <XCircle size={20} className="mt-0.5 shrink-0" />
           )}
 
           <span className="font-medium">{message.text}</span>
         </div>
       )}
+
+      <div className="mt-6 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-cyan-400/40 bg-slate-950 text-cyan-200">
+            {photoPreview ? (
+              <img
+                src={photoPreview}
+                alt="Prévia da foto do aluno"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <Camera size={30} />
+            )}
+          </div>
+
+          <div className="flex-1">
+            <p className="font-bold text-white">Foto de identificação</p>
+            <p className="mt-1 text-xs leading-5 text-slate-300">
+              Rosto de frente, boa iluminação e somente o aluno na imagem. A
+              foto será comprimida para WebP 640 × 640 antes do envio.
+            </p>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800">
+                <ImagePlus size={16} />
+                Escolher foto
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) =>
+                    handlePhotoSelection(event.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20">
+                <Camera size={16} />
+                Tirar agora
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  className="hidden"
+                  onChange={(event) =>
+                    handlePhotoSelection(event.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+            </div>
+
+            {photoPreview && (
+              <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-3 text-sm text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={photoConfirmed}
+                  onChange={(event) => setPhotoConfirmed(event.target.checked)}
+                  className="mt-1 h-4 w-4 accent-violet-500"
+                />
+                <span>
+                  Confirmo que o aluno está sozinho, de frente, com o rosto
+                  visível e a foto legível.
+                </span>
+              </label>
+            )}
+          </div>
+        </div>
+      </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <input
@@ -229,8 +373,13 @@ export function NewStudentForm({
       <button
         onClick={handleCreateStudent}
         disabled={loading}
-        className="mt-5 rounded-2xl bg-violet-500 px-6 py-3 font-semibold transition hover:bg-violet-400 disabled:opacity-50"
+        className="mt-5 flex items-center gap-2 rounded-2xl bg-violet-500 px-6 py-3 font-semibold transition hover:bg-violet-400 disabled:opacity-50"
       >
+        {loading ? (
+          <Loader2 size={18} className="animate-spin" />
+        ) : photoFile ? (
+          <Upload size={18} />
+        ) : null}
         {loading ? "Salvando..." : "Salvar aluno"}
       </button>
     </div>

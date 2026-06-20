@@ -52,6 +52,10 @@ type Student = {
   name: string;
   class_id: string;
   birth_date: string | null;
+  photo_path: string | null;
+  photo_status: string | null;
+  identity_mode: string | null;
+  avatar_key: string | null;
 };
 
 function addCourseIdWithoutDuplicate(currentIds: string[], courseId: string) {
@@ -85,7 +89,7 @@ export default async function FrequenciaPage() {
 
   const { data: students, error: studentsError } = await supabase
     .from("students")
-    .select("id, name, class_id, birth_date")
+    .select("id, name, class_id, birth_date, photo_path, photo_status, identity_mode, avatar_key")
     .eq("archived", false)
     .order("name", { ascending: true });
 
@@ -211,6 +215,10 @@ export default async function FrequenciaPage() {
       name: String(student.name ?? "Aluno sem nome"),
       class_id: String(student.class_id ?? ""),
       birth_date: student.birth_date ? String(student.birth_date) : null,
+      photo_path: student.photo_path ? String(student.photo_path) : null,
+      photo_status: student.photo_status ? String(student.photo_status) : null,
+      identity_mode: student.identity_mode ? String(student.identity_mode) : null,
+      avatar_key: student.avatar_key ? String(student.avatar_key) : null,
     })) ?? [];
 
   return (

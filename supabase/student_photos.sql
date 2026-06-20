@@ -1,5 +1,5 @@
 -- Fotos de identificação dos alunos
--- Execute este arquivo uma vez no SQL Editor do Supabase antes de usar a funcionalidade.
+-- Execute este arquivo uma vez no SQL Editor do Supabase.
 
 alter table public.students
   add column if not exists photo_path text,
@@ -52,7 +52,6 @@ on conflict (id) do update set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
--- Professores autenticados podem consultar e administrar as fotos.
 drop policy if exists "Teachers read student photos" on storage.objects;
 create policy "Teachers read student photos"
 on storage.objects for select
@@ -78,7 +77,6 @@ on storage.objects for delete
 to authenticated
 using (bucket_id = 'student-photos');
 
--- Sessões seguras do portal do aluno, usadas somente pelas rotas do servidor.
 create table if not exists public.student_portal_sessions (
   id uuid primary key default gen_random_uuid(),
   token_hash text not null unique,
@@ -96,7 +94,5 @@ create index if not exists student_portal_sessions_expires_at_idx
   on public.student_portal_sessions(expires_at);
 
 alter table public.student_portal_sessions enable row level security;
-
--- Nenhuma política para anon/authenticated: somente a service role das rotas do servidor acessa esta tabela.
 
 notify pgrst, 'reload schema';

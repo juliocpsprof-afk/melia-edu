@@ -20,6 +20,7 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { StudentIdentity } from "@/components/StudentIdentity";
 import { supabase } from "../lib/supabase";
 
 type ClassItem = {
@@ -52,6 +53,10 @@ type Student = {
   name: string;
   class_id: string;
   birth_date: string | null;
+  photo_path: string | null;
+  photo_status: string | null;
+  identity_mode: string | null;
+  avatar_key: string | null;
 };
 
 type AttendanceStatus = "Presente" | "Falta" | "Atraso";
@@ -2004,31 +2009,46 @@ Faltas: ${group.absentCount}`;
                       : "border-slate-800 bg-slate-950/40"
                   }`}
                 >
-                  <div className="grid gap-3 xl:grid-cols-[220px_330px_120px_minmax(180px,1fr)] xl:items-center">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p
-                          title={student.name}
-                          className="truncate font-semibold text-white"
-                        >
-                          {shortName}
+                  <div className="grid gap-3 xl:grid-cols-[260px_330px_120px_minmax(180px,1fr)] xl:items-center">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <StudentIdentity
+                        studentId={student.id}
+                        name={student.name}
+                        photoPath={student.photo_path}
+                        photoStatus={student.photo_status}
+                        identityMode={student.identity_mode}
+                        avatarKey={student.avatar_key}
+                        viewer="teacher"
+                        size="md"
+                        expandable
+                        showStatus
+                      />
+
+                      <div className="min-w-0 flex-1" data-no-student-photo="true">
+                        <div className="flex items-center gap-2">
+                          <p
+                            title={student.name}
+                            className="truncate font-semibold text-white"
+                          >
+                            {shortName}
+                          </p>
+
+                          {birthdayToday && (
+                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-pink-500/20 px-2 py-1 text-[11px] font-bold text-pink-100">
+                              <Cake className="h-3 w-3" />
+                              aniversário
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-sm text-slate-400">
+                          {birthdayToday
+                            ? `Faz aniversário em ${formatBirthdayDate(
+                                student.birth_date
+                              )}`
+                            : record.status}
                         </p>
-
-                        {birthdayToday && (
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-pink-500/20 px-2 py-1 text-[11px] font-bold text-pink-100">
-                            <Cake className="h-3 w-3" />
-                            aniversário
-                          </span>
-                        )}
                       </div>
-
-                      <p className="text-sm text-slate-400">
-                        {birthdayToday
-                          ? `Faz aniversário em ${formatBirthdayDate(
-                              student.birth_date
-                            )}`
-                          : record.status}
-                      </p>
                     </div>
 
                     <div className="flex flex-wrap gap-2">

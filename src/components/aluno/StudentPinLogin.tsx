@@ -3,25 +3,14 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
 
-function normalizeText(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-function normalizePin(value: string) {
-  return normalizeText(value).replace(/\s+/g, "");
-}
-
-function getFirstNameDefaultPin(name: string) {
-  const firstName = normalizeText(name).split(/\s+/)[0] || "aluno";
-
-  return `${firstName}123`;
-}
+type StudentSession = {
+  studentId: string;
+  classId: string;
+  studentName: string;
+  mustChangePin?: boolean;
+  loggedAt: string;
+};
 
 export default function StudentPinLogin() {
   const router = useRouter();
@@ -49,74 +38,48 @@ export default function StudentPinLogin() {
 
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("students")
-      .select("id, name, class_id, portal_pin, must_change_pin")
-      .eq("id", studentId)
-      .eq("class_id", classId)
-      .eq("archived", false)
-      .single();
+    try {
+      const response = await fetch("/api/student-session/login", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          studentId,
+          classId,
+          pin: pin.trim(),
+        }),
+      });
 
-    if (error || !data) {
-      setLoading(false);
-      setErrorMessage("Aluno não encontrado.");
-      return;
-    }
+      const payload = (await response.json()) as {
+        error?: string;
+        session?: StudentSession;
+      };
 
-    const typedPin = pin.trim();
-    const normalizedTypedPin = normalizePin(typedPin);
-
-    const savedPortalPin =
-      typeof data.portal_pin === "string" ? data.portal_pin.trim() : "";
-
-    const defaultPin = getFirstNameDefaultPin(data.name || "Aluno");
-
-    const hasSavedPin = Boolean(savedPortalPin);
-
-    const isSavedPinCorrect = hasSavedPin && typedPin === savedPortalPin;
-
-    const isDefaultPinCorrect =
-      !hasSavedPin && normalizedTypedPin === defaultPin;
-
-    if (!isSavedPinCorrect && !isDefaultPinCorrect) {
-      setLoading(false);
-      setErrorMessage(
-        "PIN incorreto. Use o PIN padrão do primeiro acesso ou seu PIN pessoal."
-      );
-      return;
-    }
-
-    if (!hasSavedPin && isDefaultPinCorrect) {
-      const { error: updatePinError } = await supabase
-        .from("students")
-        .update({
-          portal_pin: defaultPin,
-          must_change_pin: true,
-          pin_updated_at: new Date().toISOString(),
-        })
-        .eq("id", data.id);
-
-      if (updatePinError) {
-        setLoading(false);
-        setErrorMessage("Não foi possível preparar seu PIN. Tente novamente.");
+      if (!response.ok || !payload.session) {
+        setErrorMessage(
+          payload.error ||
+            "Não foi possível entrar. Verifique seu PIN e tente novamente."
+        );
         return;
       }
+
+      sessionStorage.setItem(
+        "melia_student_session",
+        JSON.stringify(payload.session)
+      );
+
+      router.push("/aluno/dashboard");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível entrar no portal."
+      );
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
-
-    sessionStorage.setItem(
-      "melia_student_session",
-      JSON.stringify({
-        studentId: data.id,
-        classId: data.class_id,
-        studentName: data.name,
-        mustChangePin: data.must_change_pin !== false || !hasSavedPin,
-        loggedAt: new Date().toISOString(),
-      })
-    );
-
-    router.push("/aluno/dashboard");
   }
 
   return (

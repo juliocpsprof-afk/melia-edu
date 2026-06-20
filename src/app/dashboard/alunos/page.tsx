@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { Archive, TrendingUp, UserRound, Users } from "lucide-react";
 
 import { supabase } from "../../../lib/supabase";
+import { StudentPhotoManager } from "../../../components/StudentPhotoManager";
 import { StudentRegistrationArea } from "../../../components/StudentRegistrationArea";
 import { StudentsTable } from "../../../components/aluno/StudentsTable";
 
@@ -20,8 +21,19 @@ type CourseItem = {
 
 type StudentSummary = {
   id: string;
+  name: string | null;
+  class_name?: string | null;
   status: string | null;
   archived?: boolean | null;
+  photo_path?: string | null;
+  photo_status?: string | null;
+  photo_uploaded_by?: string | null;
+  photo_updated_at?: string | null;
+  photo_approved_at?: string | null;
+  photo_rejection_reason?: string | null;
+  identity_mode?: string | null;
+  avatar_key?: string | null;
+  photo_required?: boolean | null;
 };
 
 export default async function AlunosPage() {
@@ -88,6 +100,25 @@ export default async function AlunosPage() {
 
       <section className="p-6">
         <StudentRegistrationArea classes={safeClasses} courses={safeCourses} />
+
+        <StudentPhotoManager
+          students={safeStudents.map((student) => ({
+            id: String(student.id),
+            name: String(student.name ?? "Aluno"),
+            class_name: student.class_name ?? null,
+            archived: student.archived ?? false,
+            photo_path: student.photo_path ?? null,
+            photo_status: student.photo_status ?? "pending",
+            photo_uploaded_by: student.photo_uploaded_by ?? null,
+            photo_updated_at: student.photo_updated_at ?? null,
+            photo_approved_at: student.photo_approved_at ?? null,
+            photo_rejection_reason: student.photo_rejection_reason ?? null,
+            identity_mode:
+              student.identity_mode === "photo" ? "photo" : "avatar",
+            avatar_key: student.avatar_key ?? null,
+            photo_required: student.photo_required !== false,
+          }))}
+        />
 
         <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           <SummaryCard

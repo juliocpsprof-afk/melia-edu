@@ -18,6 +18,10 @@ type RawStudent = {
   id: string;
   name: string | null;
   class_name: string | null;
+  photo_path: string | null;
+  photo_status: string | null;
+  identity_mode: string | null;
+  avatar_key: string | null;
   grades: Grade[] | null;
 };
 
@@ -25,6 +29,10 @@ type Student = {
   id: string;
   name: string;
   class_name: string;
+  photo_path: string | null;
+  photo_status: string | null;
+  identity_mode: string | null;
+  avatar_key: string | null;
   grades: Grade[];
 };
 
@@ -35,6 +43,10 @@ export default async function NotasPage() {
       id,
       name,
       class_name,
+      photo_path,
+      photo_status,
+      identity_mode,
+      avatar_key,
       grades (
         id,
         student_id,
@@ -66,6 +78,10 @@ export default async function NotasPage() {
       id: String(student.id),
       name: String(student.name ?? "Aluno"),
       class_name: String(student.class_name ?? "Sem turma"),
+      photo_path: student.photo_path ?? null,
+      photo_status: student.photo_status ?? null,
+      identity_mode: student.identity_mode ?? "avatar",
+      avatar_key: student.avatar_key ?? null,
       grades:
         student.grades?.map((grade) => ({
           id: String(grade.id),

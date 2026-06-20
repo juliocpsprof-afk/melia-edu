@@ -22,8 +22,9 @@ import {
   Users,
 } from "lucide-react";
 
-import { supabase } from "../../lib/supabase";
+import { StudentPhotoDashboardEnhancer } from "@/components/StudentPhotoDashboardEnhancer";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { supabase } from "../../lib/supabase";
 
 const menuItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -72,7 +73,6 @@ export default function DashboardLayout({
 
       setAllowed(true);
       setCheckingAuth(false);
-
       loadUnreadMessages();
     }
 
@@ -80,16 +80,14 @@ export default function DashboardLayout({
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (!session) {
-          setAllowed(false);
-          router.replace("/login");
-        } else {
-          setAllowed(true);
-        }
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        setAllowed(false);
+        router.replace("/login");
+      } else {
+        setAllowed(true);
       }
-    );
+    });
 
     return () => {
       subscription.unsubscribe();
@@ -157,6 +155,8 @@ export default function DashboardLayout({
 
   return (
     <main className="flex min-h-screen bg-[#020617] text-white">
+      <StudentPhotoDashboardEnhancer />
+
       <aside className="hidden w-[290px] flex-col border-r border-slate-800 bg-[#020617] p-6 lg:flex">
         <div className="flex items-center gap-3">
           <div className="rounded-2xl bg-violet-500/15 p-3 text-violet-400">
@@ -192,8 +192,7 @@ export default function DashboardLayout({
           {menuItems.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
-            const isMessages =
-              item.href === "/dashboard/mensagens";
+            const isMessages = item.href === "/dashboard/mensagens";
 
             return (
               <Link
@@ -207,18 +206,14 @@ export default function DashboardLayout({
               >
                 <div className="flex items-center gap-4">
                   <Icon size={22} />
-
-                  <span className="font-medium">
-                    {item.label}
-                  </span>
+                  <span className="font-medium">{item.label}</span>
                 </div>
 
-                {isMessages &&
-                  unreadMessages > 0 && (
-                    <div className="flex h-7 min-w-[28px] items-center justify-center rounded-full bg-emerald-500 px-2 text-xs font-black text-white">
-                      {unreadMessages}
-                    </div>
-                  )}
+                {isMessages && unreadMessages > 0 && (
+                  <div className="flex h-7 min-w-[28px] items-center justify-center rounded-full bg-emerald-500 px-2 text-xs font-black text-white">
+                    {unreadMessages}
+                  </div>
+                )}
               </Link>
             );
           })}
@@ -235,7 +230,7 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      <section className="flex-1 bg-[#020617]">
+      <section className="min-w-0 flex-1 bg-[#020617]">
         {children}
       </section>
     </main>

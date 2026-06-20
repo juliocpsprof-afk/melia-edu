@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Search, UserRound, Users } from "lucide-react";
+
+import { getSafeStudentAvatar } from "@/lib/studentAvatars";
 import { supabase } from "@/lib/supabase";
 
 type Student = {
   id: string;
   name: string | null;
   class_id: string | null;
+  avatar_key: string | null;
 };
 
 type ClassInfo = {
@@ -36,19 +39,8 @@ function getShortName(fullName: string | null) {
   return `${parts[0]} ${parts[1]}`;
 }
 
-function getInitials(name: string | null) {
-  const shortName = getShortName(name);
-  const parts = shortName.trim().split(" ").filter(Boolean);
-
-  if (parts.length === 0) return "A";
-  if (parts.length === 1) return parts[0][0].toUpperCase();
-
-  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-}
-
 function getTheme(id: string) {
   const total = id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-
   return avatarThemes[total % avatarThemes.length];
 }
 
@@ -79,7 +71,7 @@ export default function StudentList({ classId }: { classId: string }) {
 
         supabase
           .from("students")
-          .select("id, name, class_id")
+          .select("id, name, class_id, avatar_key")
           .eq("class_id", classId)
           .eq("archived", false)
           .order("name", { ascending: true }),
@@ -184,6 +176,7 @@ export default function StudentList({ classId }: { classId: string }) {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {visibleStudents.map((student, index) => {
               const gradient = getTheme(student.id);
+              const avatar = getSafeStudentAvatar(student.avatar_key);
 
               return (
                 <Link
@@ -200,9 +193,10 @@ export default function StudentList({ classId }: { classId: string }) {
 
                   <div className="relative z-10 flex items-center gap-4">
                     <div
-                      className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-[28px] bg-gradient-to-br ${gradient} text-xl font-black text-white shadow-xl`}
+                      className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${gradient} text-3xl text-white shadow-xl`}
+                      aria-label={`Avatar de ${getShortName(student.name)}`}
                     >
-                      {getInitials(student.name)}
+                      {avatar}
                     </div>
 
                     <div className="min-w-0 flex-1">
