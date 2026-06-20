@@ -1,3 +1,5 @@
+create extension if not exists pgcrypto;
+
 alter table public.courses
   add column if not exists curriculum_status text not null default 'in_progress';
 
