@@ -22,6 +22,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { LearningProgressDashboardPortal } from "@/components/LearningProgressDashboardPortal";
 import { StudentLearningProgressPortal } from "@/components/StudentLearningProgressPortal";
 import { StudentPhotoDashboardEnhancer } from "@/components/StudentPhotoDashboardEnhancer";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -155,6 +156,7 @@ export default function DashboardLayout({
     <main className="flex min-h-screen bg-[#020617] text-white">
       <StudentPhotoDashboardEnhancer />
       <StudentLearningProgressPortal />
+      <LearningProgressDashboardPortal />
 
       <aside className="hidden w-[290px] flex-col border-r border-slate-800 bg-[#020617] p-6 lg:flex">
         <div className="flex items-center gap-3">
