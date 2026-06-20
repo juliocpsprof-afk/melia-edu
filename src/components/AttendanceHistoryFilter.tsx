@@ -3,10 +3,12 @@
 import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import toast from "react-hot-toast";
 import {
+  CalendarDays,
   ChevronDown,
   Clipboard,
   Edit3,
   Eye,
+  RotateCcw,
   Save,
   Search,
   Trash2,
@@ -39,6 +41,13 @@ type EditRecord = {
   arrival_time: string;
   notes: string;
 };
+
+type DateFilterMode = "all" | "day" | "week" | "month" | "custom";
+
+type DateRange = {
+  start: string;
+  end: string;
+} | null;
 
 const motivationalMessages = [
   "Cada presença é um passo a mais rumo ao seu primeiro grande resultado profissional.",
@@ -146,6 +155,105 @@ function formatTime(value: string | null | undefined) {
   return timeMatch?.[0] ?? "Sem horário";
 }
 
+function getTodayInputValue() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function parseInputDate(value: string) {
+  const [yearValue, monthValue, dayValue] = value.split("-");
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const date = new Date(year, month - 1, day);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+}
+
+function toInputDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getWeekRange(referenceDate: string): DateRange {
+  const parsedDate = parseInputDate(referenceDate);
+
+  if (!parsedDate) {
+    return null;
+  }
+
+  const dayOfWeek = parsedDate.getDay();
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(parsedDate);
+  monday.setDate(parsedDate.getDate() + mondayOffset);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  return {
+    start: toInputDate(monday),
+    end: toInputDate(sunday),
+  };
+}
+
+function getMonthRange(monthValue: string): DateRange {
+  const [yearValue, monthNumberValue] = monthValue.split("-");
+  const year = Number(yearValue);
+  const monthNumber = Number(monthNumberValue);
+
+  if (!year || !monthNumber) {
+    return null;
+  }
+
+  const firstDay = new Date(year, monthNumber - 1, 1);
+  const lastDay = new Date(year, monthNumber, 0);
+
+  return {
+    start: toInputDate(firstDay),
+    end: toInputDate(lastDay),
+  };
+}
+
+function getCustomRange(startValue: string, endValue: string): DateRange {
+  if (!startValue && !endValue) {
+    return null;
+  }
+
+  if (startValue && endValue && startValue > endValue) {
+    return {
+      start: endValue,
+      end: startValue,
+    };
+  }
+
+  return {
+    start: startValue,
+    end: endValue,
+  };
+}
+
+function getContentSummary(value: string) {
+  const cleanValue = value.trim().replace(/\s+/g, " ");
+
+  return cleanValue || "Aula sem conteúdo";
+}
+
 function getStatusIcon(status: string) {
   if (status === "Presente") {
     return "✅";
@@ -163,8 +271,18 @@ export function AttendanceHistoryFilter({
 }: {
   attendance: AttendanceItem[];
 }) {
+  const todayValue = getTodayInputValue();
+
   const [search, setSearch] = useState("");
   const [selectedClassName, setSelectedClassName] = useState("");
+  const [dateFilterMode, setDateFilterMode] =
+    useState<DateFilterMode>("all");
+  const [selectedDay, setSelectedDay] = useState(todayValue);
+  const [selectedWeekReference, setSelectedWeekReference] =
+    useState(todayValue);
+  const [selectedMonth, setSelectedMonth] = useState(todayValue.slice(0, 7));
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
   const [openGroup, setOpenGroup] = useState("");
   const [editingGroup, setEditingGroup] = useState("");
   const [editRecords, setEditRecords] = useState<Record<string, EditRecord>>(
@@ -181,6 +299,38 @@ export function AttendanceHistoryFilter({
     );
   }, [attendance]);
 
+  const activeDateRange = useMemo<DateRange>(() => {
+    if (dateFilterMode === "day") {
+      return selectedDay
+        ? {
+            start: selectedDay,
+            end: selectedDay,
+          }
+        : null;
+    }
+
+    if (dateFilterMode === "week") {
+      return getWeekRange(selectedWeekReference);
+    }
+
+    if (dateFilterMode === "month") {
+      return getMonthRange(selectedMonth);
+    }
+
+    if (dateFilterMode === "custom") {
+      return getCustomRange(customStartDate, customEndDate);
+    }
+
+    return null;
+  }, [
+    dateFilterMode,
+    selectedDay,
+    selectedWeekReference,
+    selectedMonth,
+    customStartDate,
+    customEndDate,
+  ]);
+
   const filteredAttendance = useMemo(() => {
     const normalizedSearch = normalizeText(search);
 
@@ -188,6 +338,14 @@ export function AttendanceHistoryFilter({
       const className = item.classes?.name || "Turma";
 
       if (selectedClassName && className !== selectedClassName) {
+        return false;
+      }
+
+      if (activeDateRange?.start && item.date < activeDateRange.start) {
+        return false;
+      }
+
+      if (activeDateRange?.end && item.date > activeDateRange.end) {
         return false;
       }
 
@@ -207,7 +365,37 @@ export function AttendanceHistoryFilter({
 
       return text.includes(normalizedSearch);
     });
-  }, [attendance, search, selectedClassName]);
+  }, [attendance, search, selectedClassName, activeDateRange]);
+
+  const activeDateRangeLabel = useMemo(() => {
+    if (dateFilterMode === "all") {
+      return "Todo o histórico";
+    }
+
+    if (!activeDateRange) {
+      return "Selecione uma data";
+    }
+
+    if (activeDateRange.start && activeDateRange.end) {
+      if (activeDateRange.start === activeDateRange.end) {
+        return formatDate(activeDateRange.start);
+      }
+
+      return `${formatDate(activeDateRange.start)} até ${formatDate(
+        activeDateRange.end
+      )}`;
+    }
+
+    if (activeDateRange.start) {
+      return `A partir de ${formatDate(activeDateRange.start)}`;
+    }
+
+    if (activeDateRange.end) {
+      return `Até ${formatDate(activeDateRange.end)}`;
+    }
+
+    return "Período personalizado";
+  }, [dateFilterMode, activeDateRange]);
 
   const groups = useMemo(() => {
     const grouped = new Map<string, AttendanceItem[]>();
@@ -419,10 +607,49 @@ _${motivationalMessage}_`;
     setOpenGroup((current) => (current === groupKey ? "" : groupKey));
   }
 
+  function resetFilters() {
+    setSearch("");
+    setSelectedClassName("");
+    setDateFilterMode("all");
+    setSelectedDay(todayValue);
+    setSelectedWeekReference(todayValue);
+    setSelectedMonth(todayValue.slice(0, 7));
+    setCustomStartDate("");
+    setCustomEndDate("");
+    setOpenGroup("");
+    setEditingGroup("");
+    setEditRecords({});
+  }
+
+  function handleDateFilterModeChange(mode: DateFilterMode) {
+    setDateFilterMode(mode);
+    setOpenGroup("");
+    setEditingGroup("");
+    setEditRecords({});
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-5">
-        <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <h2 className="text-lg font-black text-white">Filtros do histórico</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Localize chamadas por turma, conteúdo, aluno ou período.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-700 px-4 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+          >
+            <RotateCcw size={16} />
+            Limpar filtros
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
           <div className="relative">
             <select
               value={selectedClassName}
@@ -455,9 +682,127 @@ _${motivationalMessage}_`;
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Pesquisar por aluno, aula, status ou observação..."
+              placeholder="Pesquisar por aluno, assunto, status ou observação..."
               className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
             />
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+          <div className="flex items-center gap-2 text-sm font-bold text-white">
+            <CalendarDays size={18} className="text-blue-300" />
+            Período das aulas
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(
+              [
+                ["all", "Todos"],
+                ["day", "Um dia"],
+                ["week", "Semana"],
+                ["month", "Mês"],
+                ["custom", "Período personalizado"],
+              ] as [DateFilterMode, string][]
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => handleDateFilterModeChange(mode)}
+                className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
+                  dateFilterMode === mode
+                    ? "border-blue-300 bg-blue-500/20 text-blue-100"
+                    : "border-slate-700 bg-slate-900 text-slate-400 hover:border-blue-500/40 hover:text-slate-200"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {dateFilterMode === "day" && (
+            <div className="mt-4 max-w-xs">
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                Dia da aula
+              </label>
+              <input
+                type="date"
+                value={selectedDay}
+                onChange={(event) => setSelectedDay(event.target.value)}
+                style={{ colorScheme: "dark" }}
+                className="h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400"
+              />
+            </div>
+          )}
+
+          {dateFilterMode === "week" && (
+            <div className="mt-4 max-w-xs">
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                Escolha um dia da semana desejada
+              </label>
+              <input
+                type="date"
+                value={selectedWeekReference}
+                onChange={(event) =>
+                  setSelectedWeekReference(event.target.value)
+                }
+                style={{ colorScheme: "dark" }}
+                className="h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400"
+              />
+            </div>
+          )}
+
+          {dateFilterMode === "month" && (
+            <div className="mt-4 max-w-xs">
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                Mês das aulas
+              </label>
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(event) => setSelectedMonth(event.target.value)}
+                style={{ colorScheme: "dark" }}
+                className="h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400"
+              />
+            </div>
+          )}
+
+          {dateFilterMode === "custom" && (
+            <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Data inicial
+                </label>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(event) => setCustomStartDate(event.target.value)}
+                  style={{ colorScheme: "dark" }}
+                  className="h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Data final
+                </label>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(event) => setCustomEndDate(event.target.value)}
+                  style={{ colorScheme: "dark" }}
+                  className="h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-blue-400"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm">
+            <span className="text-slate-400">
+              Período selecionado: {activeDateRangeLabel}
+            </span>
+            <span className="font-bold text-blue-200">
+              {groups.length} chamada(s) encontrada(s)
+            </span>
           </div>
         </div>
       </div>
@@ -487,20 +832,45 @@ _${motivationalMessage}_`;
                       toggleGroup(group.key);
                     }
                   }}
-                  className="grid cursor-pointer gap-3 p-4 transition hover:bg-slate-800/40 lg:grid-cols-[minmax(170px,1.3fr)_120px_100px_auto] lg:items-center"
+                  className="grid cursor-pointer gap-3 p-4 transition hover:bg-slate-800/40 xl:grid-cols-[minmax(150px,0.8fr)_minmax(260px,1.7fr)_120px_100px_auto] xl:items-center"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-black uppercase tracking-wide text-white">
+                    <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                      Turma
+                    </p>
+                    <p className="mt-1 truncate text-sm font-black uppercase tracking-wide text-white">
                       {group.className}
                     </p>
                   </div>
 
-                  <div className="text-sm font-semibold text-slate-300">
-                    {formatDate(group.date)}
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                      Assunto da aula
+                    </p>
+                    <p
+                      title={getContentSummary(group.content)}
+                      className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-slate-200"
+                    >
+                      {getContentSummary(group.content)}
+                    </p>
                   </div>
 
-                  <div className="text-sm font-semibold text-slate-300">
-                    {formatTime(group.createdAt)}
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                      Data
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-300">
+                      {formatDate(group.date)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                      Horário
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-300">
+                      {formatTime(group.createdAt)}
+                    </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
