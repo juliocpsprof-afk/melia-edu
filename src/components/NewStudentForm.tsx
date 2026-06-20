@@ -34,19 +34,15 @@ export function NewStudentForm({
   const [birthDate, setBirthDate] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-
   const [classId, setClassId] = useState("");
   const [courseId, setCourseId] = useState("");
-
   const [average, setAverage] = useState("");
   const [attendance, setAttendance] = useState("");
-
   const [status, setStatus] = useState("Regular");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoConfirmed, setPhotoConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
-
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -79,7 +75,7 @@ export function NewStudentForm({
     if (!name.trim()) {
       setMessage({
         type: "error",
-        text: "Digite pelo menos o nome do aluno. A foto poderá ser enviada agora ou no primeiro acesso.",
+        text: "Digite pelo menos o nome do aluno.",
       });
       return;
     }
@@ -104,17 +100,14 @@ export function NewStudentForm({
         birth_date: birthDate || null,
         email: email.trim() || null,
         phone: phone.trim() || null,
-
         class_id: selectedClass?.id || null,
         class_name: selectedClass?.name || null,
-
         course_id: selectedCourse?.id || null,
         course_name: selectedCourse?.name || null,
-
         average: average ? Number(average) : 0,
         attendance: attendance ? Number(attendance) : 0,
-
         status: status || "Regular",
+        photo_required: false,
       })
       .select("id, name")
       .single();
@@ -122,7 +115,6 @@ export function NewStudentForm({
     if (error || !createdStudent?.id) {
       setLoading(false);
       console.error(error);
-
       setMessage({
         type: "error",
         text: `Erro ao cadastrar aluno: ${
@@ -150,14 +142,13 @@ export function NewStudentForm({
     }
 
     setLoading(false);
-
     setMessage({
       type: photoWarning ? "error" : "success",
       text: photoWarning
         ? `Aluno cadastrado.${photoWarning}`
         : photoFile
-        ? "Aluno cadastrado com foto aprovada!"
-        : "Aluno cadastrado. A foto será exigida no primeiro acesso ao portal.",
+        ? "Aluno cadastrado com foto!"
+        : "Aluno cadastrado. A foto poderá ser incluída depois na lista ou no perfil individual.",
     });
 
     setName("");
@@ -187,9 +178,8 @@ export function NewStudentForm({
       <h2 className="text-2xl font-bold">Cadastrar novo aluno</h2>
 
       <p className="mt-1 text-sm leading-6 text-slate-400">
-        O cadastro pode ser criado imediatamente. A foto de identificação é
-        obrigatória e poderá ser enviada pelo professor agora ou pelo aluno no
-        primeiro acesso.
+        Preencha os dados principais. A foto é opcional e pode ser adicionada
+        agora, na lista de alunos ou no perfil individual.
       </p>
 
       {message && (
@@ -205,13 +195,16 @@ export function NewStudentForm({
           ) : (
             <XCircle size={20} className="mt-0.5 shrink-0" />
           )}
-
           <span className="font-medium">{message.text}</span>
         </div>
       )}
 
-      <div className="mt-6 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+      <details className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+        <summary className="cursor-pointer font-semibold text-cyan-100">
+          Adicionar foto agora (opcional)
+        </summary>
+
+        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
           <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-cyan-400/40 bg-slate-950 text-cyan-200">
             {photoPreview ? (
               <img
@@ -225,10 +218,9 @@ export function NewStudentForm({
           </div>
 
           <div className="flex-1">
-            <p className="font-bold text-white">Foto de identificação</p>
-            <p className="mt-1 text-xs leading-5 text-slate-300">
-              Rosto de frente, boa iluminação e somente o aluno na imagem. A
-              foto será comprimida para WebP 640 × 640 antes do envio.
+            <p className="text-xs leading-5 text-slate-300">
+              Use uma foto de frente, bem iluminada e com somente o aluno. A
+              imagem será comprimida para WebP 640 × 640 antes do envio.
             </p>
 
             <div className="mt-3 flex flex-wrap gap-2">
@@ -276,7 +268,7 @@ export function NewStudentForm({
             )}
           </div>
         </div>
-      </div>
+      </details>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <input
@@ -290,7 +282,6 @@ export function NewStudentForm({
           <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
             Data de nascimento opcional
           </label>
-
           <input
             type="date"
             value={birthDate}
@@ -321,7 +312,6 @@ export function NewStudentForm({
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         >
           <option value="">Turma opcional</option>
-
           {classes.map((classItem) => (
             <option key={classItem.id} value={classItem.id}>
               {classItem.name}
@@ -335,7 +325,6 @@ export function NewStudentForm({
           className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-400"
         >
           <option value="">Curso opcional</option>
-
           {courses.map((course) => (
             <option key={course.id} value={course.id}>
               {course.name}
