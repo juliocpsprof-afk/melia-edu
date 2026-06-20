@@ -22,6 +22,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { StudentLearningProgressPortal } from "@/components/StudentLearningProgressPortal";
 import { StudentPhotoDashboardEnhancer } from "@/components/StudentPhotoDashboardEnhancer";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { supabase } from "../../lib/supabase";
@@ -140,10 +141,7 @@ export default function DashboardLayout({
       <main className="flex min-h-screen items-center justify-center bg-[#020617] text-white">
         <div className="rounded-3xl border border-slate-800 bg-slate-900/70 px-8 py-6 text-center">
           <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-violet-400 border-t-transparent" />
-
-          <p className="font-semibold text-slate-200">
-            Verificando acesso...
-          </p>
+          <p className="font-semibold text-slate-200">Verificando acesso...</p>
         </div>
       </main>
     );
@@ -156,21 +154,18 @@ export default function DashboardLayout({
   return (
     <main className="flex min-h-screen bg-[#020617] text-white">
       <StudentPhotoDashboardEnhancer />
+      <StudentLearningProgressPortal />
 
       <aside className="hidden w-[290px] flex-col border-r border-slate-800 bg-[#020617] p-6 lg:flex">
         <div className="flex items-center gap-3">
           <div className="rounded-2xl bg-violet-500/15 p-3 text-violet-400">
             <GraduationCap size={30} />
           </div>
-
           <div>
             <h1 className="text-2xl font-bold">
               Melia <span className="text-violet-400">EDU</span>
             </h1>
-
-            <p className="text-sm text-slate-400">
-              Painel do professor
-            </p>
+            <p className="text-sm text-slate-400">Painel do professor</p>
           </div>
         </div>
 
@@ -179,12 +174,8 @@ export default function DashboardLayout({
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
               Tema
             </p>
-
-            <p className="text-sm font-bold text-white">
-              Visual
-            </p>
+            <p className="text-sm font-bold text-white">Visual</p>
           </div>
-
           <ThemeToggle />
         </div>
 
@@ -230,9 +221,7 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      <section className="min-w-0 flex-1 bg-[#020617]">
-        {children}
-      </section>
+      <section className="min-w-0 flex-1 bg-[#020617]">{children}</section>
     </main>
   );
 }
