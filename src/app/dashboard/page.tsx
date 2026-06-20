@@ -1,4 +1,5 @@
 import { RealtimeDashboardUpdater } from "@/components/RealtimeDashboardUpdater";
+import { RadarStudentNameEnhancer } from "@/components/dashboard/RadarStudentNameEnhancer";
 import {
   TeacherDashboard,
   type DashboardActivity,
@@ -204,6 +205,7 @@ export default async function DashboardPage() {
   return (
     <>
       <RealtimeDashboardUpdater />
+      <RadarStudentNameEnhancer />
       <TeacherDashboard
         students={students}
         classes={classes}
